@@ -70,6 +70,8 @@ class ReviewPanel(ctk.CTkFrame):
 
             ctk.CTkButton(btn_frame, text="收起", fg_color="gray",
                           width=80, command=self._collapse).pack(side="right")
+            ctk.CTkButton(btn_frame, text="编辑", fg_color="#7f8c8d", hover_color="#95a5a6",
+                          width=70, command=lambda: self._edit_item(item)).pack(side="right", padx=(0, 5))
         else:
             ctk.CTkButton(card, text="展开", width=80, fg_color="gray",
                           command=lambda: self._expand(item["id"])).pack(padx=10, pady=(0, 8), anchor="e")
@@ -99,6 +101,12 @@ class ReviewPanel(ctk.CTkFrame):
     def _confirm_mastery(self, item):
         from ui.mastery_dialog import MasteryConfirmDialog
         MasteryConfirmDialog(self, item, self._handle_mastery_result)
+
+    def _edit_item(self, item):
+        from ui.edit_dialog import EditItemDialog
+        EditItemDialog(self, self.db, item,
+                       on_saved_callback=lambda _id: self.on_data_changed() if self.on_data_changed else self.refresh(),
+                       on_deleted_callback=lambda _id: self.on_data_changed() if self.on_data_changed else self.refresh())
 
     def _handle_mastery_result(self, item, result):
         today = date.today()

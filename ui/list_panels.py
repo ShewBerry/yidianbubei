@@ -90,8 +90,12 @@ class AllItemsPanel(ctk.CTkFrame):
             content_box.pack(fill="x", padx=10, pady=5)
             content_box.insert("1.0", item["content"])
             content_box.configure(state="disabled")
-            ctk.CTkButton(card, text="收起", width=80, fg_color="gray",
-                          command=self._collapse).pack(padx=10, pady=(0, 8), anchor="e")
+            btn_frame = ctk.CTkFrame(card, fg_color="transparent")
+            btn_frame.pack(fill="x", padx=10, pady=(0, 8))
+            ctk.CTkButton(btn_frame, text="收起", width=80, fg_color="gray",
+                          command=self._collapse).pack(side="right")
+            ctk.CTkButton(btn_frame, text="编辑", fg_color="#7f8c8d", hover_color="#95a5a6",
+                          width=70, command=lambda: self._edit_item(item)).pack(side="right", padx=(0, 5))
         else:
             ctk.CTkButton(card, text="展开", width=80, fg_color="gray",
                           command=lambda: self._expand(item["id"])).pack(padx=10, pady=(0, 8), anchor="e")
@@ -103,6 +107,12 @@ class AllItemsPanel(ctk.CTkFrame):
     def _collapse(self):
         self.expanded_item_id = None
         self.refresh()
+
+    def _edit_item(self, item):
+        from ui.edit_dialog import EditItemDialog
+        EditItemDialog(self, self.db, item,
+                       on_saved_callback=lambda _id: self.refresh(),
+                       on_deleted_callback=lambda _id: self.refresh())
 
 
 class MasteredPanel(ctk.CTkFrame):
@@ -175,8 +185,12 @@ class MasteredPanel(ctk.CTkFrame):
             content_box.pack(fill="x", padx=10, pady=5)
             content_box.insert("1.0", item["content"])
             content_box.configure(state="disabled")
-            ctk.CTkButton(card, text="收起", width=80, fg_color="gray",
-                          command=self._collapse).pack(padx=10, pady=(0, 8), anchor="e")
+            btn_frame = ctk.CTkFrame(card, fg_color="transparent")
+            btn_frame.pack(fill="x", padx=10, pady=(0, 8))
+            ctk.CTkButton(btn_frame, text="收起", width=80, fg_color="gray",
+                          command=self._collapse).pack(side="right")
+            ctk.CTkButton(btn_frame, text="编辑", fg_color="#7f8c8d", hover_color="#95a5a6",
+                          width=70, command=lambda: self._edit_item(item)).pack(side="right", padx=(0, 5))
         else:
             ctk.CTkButton(card, text="展开", width=80, fg_color="gray",
                           command=lambda: self._expand(item["id"])).pack(padx=10, pady=(0, 8), anchor="e")
@@ -188,3 +202,9 @@ class MasteredPanel(ctk.CTkFrame):
     def _collapse(self):
         self.expanded_item_id = None
         self.refresh()
+
+    def _edit_item(self, item):
+        from ui.edit_dialog import EditItemDialog
+        EditItemDialog(self, self.db, item,
+                       on_saved_callback=lambda _id: self.refresh(),
+                       on_deleted_callback=lambda _id: self.refresh())

@@ -183,8 +183,15 @@ class Database:
             )
         return [self._row_to_item(row) for row in cursor.fetchall()]
 
+    def delete_item(self, item_id: int):
+        """删除条目及其所有复习记录。外键约束会自动级联删除 review_logs（若开启），
+        这里显式删除以防外键未启用的情况。"""
+        self.conn.execute("DELETE FROM review_logs WHERE item_id=?", (item_id,))
+        self.conn.execute("DELETE FROM items WHERE id=?", (item_id,))
+        self.conn.commit()
+
     def update_item(self, item_id: int, **fields):
-        allowed = {"status", "current_stage", "next_review_date",
+        allowed = {"title", "content", "status", "current_stage", "next_review_date",
                    "cycle_start_date", "cycle_type", "category_id"}
         updates = {k: v for k, v in fields.items() if k in allowed}
         if not updates:
