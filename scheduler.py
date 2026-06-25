@@ -4,13 +4,43 @@ class Scheduler:
     FULL_CYCLE = [1, 2, 4, 7, 15, 30]
     SHORT_CYCLE = [1, 3, 7]
 
-    def schedule_new_item(self, today: date) -> dict:
+    def schedule_new_item(self, today: date, start_date: date = None) -> dict:
+        """新建条目的初始排程。
+        - start_date 为 None 或等于 today：首次复习在明天（阶段1）
+        - start_date 早于 today：按艾宾浩斯曲线反推当前应处于的阶段和下次复习日期
+        """
+        if start_date is None:
+            start_date = today
+        return self.backfill_schedule(start_date, today)
+
+    def backfill_schedule(self, start_date: date, today: date) -> dict:
+        """根据开始日期和今天日期，推算当前应处的阶段和下次复习日期。
+
+        规则（按完整周期 FULL_CYCLE 的累计天数）：
+        - 阶段N的"应复习日" = start_date + 累计天数（阶段1..N的间隔之和）
+        - 找到第一个"应复习日" >= today 的阶段，这就是当前待复习的阶段
+        - 该阶段的 next_review_date = max(该阶段应复习日, today)（不早于今天）
+        - 若所有阶段应复习日都 < today，说明已完成完整周期，进入待确认掌握
+        """
+        cumulative = 0
+        for stage, interval in enumerate(self.FULL_CYCLE, start=1):
+            cumulative += interval
+            stage_due_date = start_date + timedelta(days=cumulative)
+            if stage_due_date >= today:
+                return {
+                    "status": "learning",
+                    "current_stage": stage,
+                    "cycle_type": "full",
+                    "cycle_start_date": start_date,
+                    "next_review_date": stage_due_date
+                }
+        # 所有阶段都已到期，进入待确认掌握
         return {
-            "status": "learning",
-            "current_stage": 1,
+            "status": "pending_mastery",
+            "current_stage": len(self.FULL_CYCLE),
             "cycle_type": "full",
-            "cycle_start_date": today,
-            "next_review_date": today + timedelta(days=1)
+            "cycle_start_date": start_date,
+            "next_review_date": today
         }
 
     def mark_reviewed(self, item: dict, review_date: date) -> dict:

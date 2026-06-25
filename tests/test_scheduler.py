@@ -138,3 +138,68 @@ def test_stage_description_short_cycle():
 def test_stage_description_pending_mastery():
     s = Scheduler()
     assert s.stage_description(6, "full") == "第6次复习（30天后）"
+
+# ===== backfill_schedule 测试 =====
+# FULL_CYCLE = [1, 2, 4, 7, 15, 30]，累计天数：1, 3, 7, 14, 29, 59
+
+def test_backfill_start_date_is_today_stage1_tomorrow():
+    s = Scheduler()
+    today = date(2026, 6, 25)
+    result = s.backfill_schedule(today, today)
+    assert result["status"] == "learning"
+    assert result["current_stage"] == 1
+    assert result["cycle_type"] == "full"
+    assert result["cycle_start_date"] == today
+    # 阶段1累计1天，应复习日 = today+1
+    assert result["next_review_date"] == today + timedelta(days=1)
+
+def test_backfill_two_days_ago_stage2():
+    # 2天前开始：阶段1累计1天(昨天到期)，阶段2累计3天(明天到期)
+    # 今天是第2天，阶段1已过期，下一个>=today的是阶段2(today+1)
+    s = Scheduler()
+    today = date(2026, 6, 25)
+    start = today - timedelta(days=2)
+    result = s.backfill_schedule(start, today)
+    assert result["status"] == "learning"
+    assert result["current_stage"] == 2
+    assert result["cycle_start_date"] == start
+    # 阶段2累计3天，应复习日 = start+3 = today+1
+    assert result["next_review_date"] == today + timedelta(days=1)
+
+def test_backfill_exactly_at_stage_boundary():
+    # 3天前开始：阶段1累计1天(2天前到期)，阶段2累计3天(今天到期)
+    s = Scheduler()
+    today = date(2026, 6, 25)
+    start = today - timedelta(days=3)
+    result = s.backfill_schedule(start, today)
+    assert result["current_stage"] == 2
+    # 阶段2应复习日 = start+3 = today
+    assert result["next_review_date"] == today
+
+def test_backfill_10_days_ago_stage4():
+    # 10天前开始：累计天数 1,3,7,14 → 阶段4应复习日=start+14=today+4
+    s = Scheduler()
+    today = date(2026, 6, 25)
+    start = today - timedelta(days=10)
+    result = s.backfill_schedule(start, today)
+    assert result["current_stage"] == 4
+    assert result["next_review_date"] == start + timedelta(days=14)
+
+def test_backfill_60_days_ago_enters_pending_mastery():
+    # 60天前开始：最后一个阶段累计59天，应复习日=start+59=today-1 < today
+    # 所有阶段都过期，进入待确认掌握
+    s = Scheduler()
+    today = date(2026, 6, 25)
+    start = today - timedelta(days=60)
+    result = s.backfill_schedule(start, today)
+    assert result["status"] == "pending_mastery"
+    assert result["current_stage"] == 6
+    assert result["next_review_date"] == today
+
+def test_schedule_new_item_with_explicit_start_date():
+    s = Scheduler()
+    today = date(2026, 6, 25)
+    start = today - timedelta(days=5)
+    result = s.schedule_new_item(today, start_date=start)
+    assert result["cycle_start_date"] == start
+    assert result["current_stage"] == 3  # 累计7天，start+7=today+2

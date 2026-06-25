@@ -2,25 +2,58 @@ import customtkinter as ctk
 from datetime import date
 from scheduler import Scheduler
 
+
 class AllItemsPanel(ctk.CTkFrame):
-    """全部条目面板：展示所有学习中/待确认的条目"""
+    """全部条目面板：展示所有学习中/待确认的条目，支持按分类过滤"""
     def __init__(self, parent, db, scheduler: Scheduler):
         super().__init__(parent)
         self.db = db
         self.scheduler = scheduler
         self.expanded_item_id = None
+        self.filter_category_id = None  # None 表示全部
 
-        ctk.CTkLabel(self, text="全部条目", font=ctk.CTkFont(size=20, weight="bold")).pack(pady=(15, 10))
+        header_frame = ctk.CTkFrame(self, fg_color="transparent")
+        header_frame.pack(fill="x", padx=15, pady=(15, 5))
+        ctk.CTkLabel(header_frame, text="全部条目", font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
+
+        self.filter_label = ctk.CTkLabel(header_frame, text="（全部）", text_color="gray")
+        self.filter_label.pack(side="left", padx=10)
+
         self.scroll_frame = ctk.CTkScrollableFrame(self, label_text="")
         self.scroll_frame.pack(fill="both", expand=True, padx=15, pady=(0, 15))
         self.refresh()
 
+    def set_category_filter(self, category_id):
+        """设置分类过滤；None=全部，'uncategorized'=未分类，整数=指定分类（含子孙）"""
+        self.filter_category_id = category_id
+        self.expanded_item_id = None
+        if category_id is None:
+            self.filter_label.configure(text="（全部）")
+        elif category_id == "uncategorized":
+            self.filter_label.configure(text="（未分类）")
+        else:
+            path = self.db.get_category_path(category_id)
+            name = " / ".join(c["name"] for c in path) if path else "?"
+            self.filter_label.configure(text=f"（{name}）")
+        self.refresh()
+
+    def _get_items(self):
+        """根据过滤条件获取条目列表"""
+        if self.filter_category_id is None:
+            return self.db.get_active_items()
+        elif self.filter_category_id == "uncategorized":
+            all_active = self.db.get_active_items()
+            return [i for i in all_active if i["category_id"] is None]
+        else:
+            items = self.db.get_items_by_category(self.filter_category_id, include_descendants=True)
+            return [i for i in items if i["status"] in ("learning", "pending_mastery")]
+
     def refresh(self):
         for widget in self.scroll_frame.winfo_children():
             widget.destroy()
-        items = self.db.get_active_items()
+        items = self._get_items()
         if not items:
-            ctk.CTkLabel(self.scroll_frame, text="还没有背诵条目，点击右上角“新建背诵”开始吧").pack(pady=50)
+            ctk.CTkLabel(self.scroll_frame, text="没有符合条件的条目").pack(pady=50)
             return
         for item in items:
             self._render_card(item)
@@ -32,7 +65,12 @@ class AllItemsPanel(ctk.CTkFrame):
         header = ctk.CTkFrame(card, fg_color="transparent")
         header.pack(fill="x", padx=10, pady=(8, 3))
 
-        ctk.CTkLabel(header, text=f"《{item['title']}》",
+        title_text = f"《{item['title']}》"
+        if item["category_id"]:
+            path = self.db.get_category_path(item["category_id"])
+            cat_name = " / ".join(c["name"] for c in path) if path else ""
+            title_text += f"  [📁{cat_name}]"
+        ctk.CTkLabel(header, text=title_text,
                      font=ctk.CTkFont(size=15, weight="bold")).pack(side="left")
 
         next_review = item["next_review_date"]
@@ -68,23 +106,51 @@ class AllItemsPanel(ctk.CTkFrame):
 
 
 class MasteredPanel(ctk.CTkFrame):
-    """已掌握面板：展示归档条目"""
+    """已掌握面板：展示归档条目，支持按分类过滤"""
     def __init__(self, parent, db):
         super().__init__(parent)
         self.db = db
         self.expanded_item_id = None
+        self.filter_category_id = None
 
-        ctk.CTkLabel(self, text="已掌握", font=ctk.CTkFont(size=20, weight="bold")).pack(pady=(15, 10))
+        header_frame = ctk.CTkFrame(self, fg_color="transparent")
+        header_frame.pack(fill="x", padx=15, pady=(15, 5))
+        ctk.CTkLabel(header_frame, text="已掌握", font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
+        self.filter_label = ctk.CTkLabel(header_frame, text="（全部）", text_color="gray")
+        self.filter_label.pack(side="left", padx=10)
+
         self.scroll_frame = ctk.CTkScrollableFrame(self, label_text="")
         self.scroll_frame.pack(fill="both", expand=True, padx=15, pady=(0, 15))
         self.refresh()
 
+    def set_category_filter(self, category_id):
+        self.filter_category_id = category_id
+        self.expanded_item_id = None
+        if category_id is None:
+            self.filter_label.configure(text="（全部）")
+        elif category_id == "uncategorized":
+            self.filter_label.configure(text="（未分类）")
+        else:
+            path = self.db.get_category_path(category_id)
+            name = " / ".join(c["name"] for c in path) if path else "?"
+            self.filter_label.configure(text=f"（{name}）")
+        self.refresh()
+
+    def _get_items(self):
+        if self.filter_category_id is None:
+            return self.db.get_mastered_items()
+        elif self.filter_category_id == "uncategorized":
+            return [i for i in self.db.get_mastered_items() if i["category_id"] is None]
+        else:
+            items = self.db.get_items_by_category(self.filter_category_id, include_descendants=True)
+            return [i for i in items if i["status"] == "mastered"]
+
     def refresh(self):
         for widget in self.scroll_frame.winfo_children():
             widget.destroy()
-        items = self.db.get_mastered_items()
+        items = self._get_items()
         if not items:
-            ctk.CTkLabel(self.scroll_frame, text="还没有已掌握的条目").pack(pady=50)
+            ctk.CTkLabel(self.scroll_frame, text="没有符合条件的条目").pack(pady=50)
             return
         for item in items:
             self._render_card(item)
@@ -95,7 +161,12 @@ class MasteredPanel(ctk.CTkFrame):
 
         header = ctk.CTkFrame(card, fg_color="transparent")
         header.pack(fill="x", padx=10, pady=(8, 3))
-        ctk.CTkLabel(header, text=f"《{item['title']}》",
+        title_text = f"《{item['title']}》"
+        if item["category_id"]:
+            path = self.db.get_category_path(item["category_id"])
+            cat_name = " / ".join(c["name"] for c in path) if path else ""
+            title_text += f"  [📁{cat_name}]"
+        ctk.CTkLabel(header, text=title_text,
                      font=ctk.CTkFont(size=15, weight="bold")).pack(side="left")
         ctk.CTkLabel(header, text=f"创建于 {item['created_date']}", text_color="gray").pack(side="right")
 

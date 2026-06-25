@@ -5,6 +5,7 @@ from scheduler import Scheduler
 from ui.review_panel import ReviewPanel
 from ui.list_panels import AllItemsPanel, MasteredPanel
 from ui.add_dialog import AddItemDialog
+from ui.category_panel import CategoryPanel
 
 
 class MainWindow(ctk.CTk):
@@ -14,7 +15,7 @@ class MainWindow(ctk.CTk):
         self.scheduler = scheduler
 
         self.title("艾宾浩斯背诵助手")
-        self.geometry("800x600")
+        self.geometry("900x650")
 
         # 顶部栏
         top_bar = ctk.CTkFrame(self)
@@ -31,6 +32,7 @@ class MainWindow(ctk.CTk):
         self.tab_today = self.tabview.add("今日待复习")
         self.tab_all = self.tabview.add("全部条目")
         self.tab_mastered = self.tabview.add("已掌握")
+        self.tab_category = self.tabview.add("分类管理")
 
         self.review_panel = ReviewPanel(self.tab_today, self.db, self.scheduler,
                                         on_data_changed=self._refresh_all)
@@ -42,16 +44,35 @@ class MainWindow(ctk.CTk):
         self.mastered_panel = MasteredPanel(self.tab_mastered, self.db)
         self.mastered_panel.pack(fill="both", expand=True)
 
-    def _open_add_dialog(self):
-        AddItemDialog(self, self._handle_add_item)
+        self.category_panel = CategoryPanel(self.tab_category, self.db,
+                                            on_category_selected=self._on_category_selected)
+        self.category_panel.pack(fill="both", expand=True)
 
-    def _handle_add_item(self, title: str, content: str):
+    def _open_add_dialog(self):
+        AddItemDialog(self, self.db, self._handle_add_item)
+
+    def _handle_add_item(self, title: str, content: str, start_date, category_id):
         today = date.today()
-        schedule = self.scheduler.schedule_new_item(today)
-        self.db.create_item(title, content, today, schedule["next_review_date"])
+        schedule = self.scheduler.schedule_new_item(today, start_date=start_date)
+        self.db.create_item(
+            title, content, start_date, schedule["next_review_date"],
+            current_stage=schedule["current_stage"],
+            cycle_type=schedule["cycle_type"],
+            cycle_start_date=schedule["cycle_start_date"],
+            status=schedule["status"],
+            category_id=category_id
+        )
         self._refresh_all()
+
+    def _on_category_selected(self, cat_id):
+        """分类面板选中分类时，同步过滤"全部条目"和"已掌握"面板。
+        cat_id: None=全部，整数=指定分类（含子孙）
+        在分类树里"全部条目"虚拟节点对应 None，不单独区分"未分类"（简化交互）。"""
+        self.all_items_panel.set_category_filter(cat_id)
+        self.mastered_panel.set_category_filter(cat_id)
 
     def _refresh_all(self):
         self.review_panel.refresh()
         self.all_items_panel.refresh()
         self.mastered_panel.refresh()
+        self.category_panel.refresh()
