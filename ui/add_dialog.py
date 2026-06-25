@@ -29,13 +29,9 @@ class AddItemDialog(ctk.CTkToplevel):
 
         # 分类选择
         ctk.CTkLabel(self, text="分类：").pack(anchor="w", padx=20)
-        cat_frame = ctk.CTkFrame(self, fg_color="transparent")
-        cat_frame.pack(fill="x", padx=20, pady=(2, 8))
-        self.category_var = ctk.StringVar(value="未分类")
-        self.category_menu = ctk.CTkOptionMenu(cat_frame, variable=self.category_var, values=["未分类"])
-        self.category_menu.pack(side="left", fill="x", expand=True)
-        ctk.CTkButton(cat_frame, text="刷新", width=60, command=self._refresh_categories).pack(side="left", padx=(5, 0))
-        self._refresh_categories()
+        from ui.category_picker import CategoryPickerButton
+        self.category_picker = CategoryPickerButton(self, db, initial_category_id=None)
+        self.category_picker.pack(fill="x", padx=20, pady=(2, 8))
 
         # 正文
         ctk.CTkLabel(self, text="正文：").pack(anchor="w", padx=20)
@@ -50,19 +46,6 @@ class AddItemDialog(ctk.CTkToplevel):
 
         self.transient(parent)
         self.grab_set()
-
-    def _refresh_categories(self):
-        categories = self.db.get_categories()
-        # 构建显示名（含路径），并保留 id 映射
-        self._cat_options = {"未分类": None}
-        display_values = ["未分类"]
-        for cat in categories:
-            path = self.db.get_category_path(cat["id"])
-            display = " / ".join(c["name"] for c in path)
-            self._cat_options[display] = cat["id"]
-            display_values.append(display)
-        self.category_menu.configure(values=display_values)
-        self.category_var.set("未分类")
 
     def _on_save(self):
         title = self.title_entry.get().strip()
@@ -83,8 +66,7 @@ class AddItemDialog(ctk.CTkToplevel):
             return
 
         # 解析分类
-        selected = self.category_var.get()
-        category_id = self._cat_options.get(selected)
+        category_id = self.category_picker.get_category_id()
 
         self.on_save_callback(title, content, start_date, category_id)
         self.destroy()

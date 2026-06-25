@@ -22,18 +22,9 @@ class EditItemDialog(ctk.CTkToplevel):
 
         # 分类选择
         ctk.CTkLabel(self, text="分类：").pack(anchor="w", padx=20)
-        cat_frame = ctk.CTkFrame(self, fg_color="transparent")
-        cat_frame.pack(fill="x", padx=20, pady=(2, 8))
-        self.category_var = ctk.StringVar(value="未分类")
-        self.category_menu = ctk.CTkOptionMenu(cat_frame, variable=self.category_var, values=["未分类"])
-        self.category_menu.pack(side="left", fill="x", expand=True)
-        self._refresh_categories()
-        # 回显当前分类
-        if item["category_id"]:
-            path = db.get_category_path(item["category_id"])
-            if path:
-                display = " / ".join(c["name"] for c in path)
-                self.category_var.set(display)
+        from ui.category_picker import CategoryPickerButton
+        self.category_picker = CategoryPickerButton(self, db, initial_category_id=item["category_id"])
+        self.category_picker.pack(fill="x", padx=20, pady=(2, 8))
 
         # 正文
         ctk.CTkLabel(self, text="正文：").pack(anchor="w", padx=20)
@@ -56,17 +47,6 @@ class EditItemDialog(ctk.CTkToplevel):
         self.transient(parent)
         self.grab_set()
 
-    def _refresh_categories(self):
-        categories = self.db.get_categories()
-        self._cat_options = {"未分类": None}
-        display_values = ["未分类"]
-        for cat in categories:
-            path = self.db.get_category_path(cat["id"])
-            display = " / ".join(c["name"] for c in path)
-            self._cat_options[display] = cat["id"]
-            display_values.append(display)
-        self.category_menu.configure(values=display_values)
-
     def _on_save(self):
         title = self.title_entry.get().strip()
         content = self.content_text.get("1.0", "end").strip()
@@ -76,8 +56,8 @@ class EditItemDialog(ctk.CTkToplevel):
         if not content:
             messagebox.showwarning("提示", "请输入正文", parent=self)
             return
-        selected = self.category_var.get()
-        category_id = self._cat_options.get(selected)
+        selected = self.category_picker.get_category_id()
+        category_id = selected
         self.db.update_item(self.item["id"], title=title, content=content, category_id=category_id)
         if self.on_saved_callback:
             self.on_saved_callback(self.item["id"])

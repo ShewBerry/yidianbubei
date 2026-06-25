@@ -66,10 +66,6 @@ class AllItemsPanel(ctk.CTkFrame):
         header.pack(fill="x", padx=10, pady=(8, 3))
 
         title_text = f"《{item['title']}》"
-        if item["category_id"]:
-            path = self.db.get_category_path(item["category_id"])
-            cat_name = " / ".join(c["name"] for c in path) if path else ""
-            title_text += f"  [📁{cat_name}]"
         ctk.CTkLabel(header, text=title_text,
                      font=ctk.CTkFont(size=15, weight="bold")).pack(side="left")
 
@@ -172,10 +168,6 @@ class MasteredPanel(ctk.CTkFrame):
         header = ctk.CTkFrame(card, fg_color="transparent")
         header.pack(fill="x", padx=10, pady=(8, 3))
         title_text = f"《{item['title']}》"
-        if item["category_id"]:
-            path = self.db.get_category_path(item["category_id"])
-            cat_name = " / ".join(c["name"] for c in path) if path else ""
-            title_text += f"  [📁{cat_name}]"
         ctk.CTkLabel(header, text=title_text,
                      font=ctk.CTkFont(size=15, weight="bold")).pack(side="left")
         ctk.CTkLabel(header, text=f"创建于 {item['created_date']}", text_color="gray").pack(side="right")
