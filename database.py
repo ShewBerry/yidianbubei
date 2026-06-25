@@ -80,5 +80,28 @@ class Database:
         row = cursor.fetchone()
         return self._row_to_item(row) if row else None
 
+    def update_item(self, item_id: int, **fields):
+        allowed = {"status", "current_stage", "next_review_date",
+                   "cycle_start_date", "cycle_type"}
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return
+        # 日期字段转 isoformat 字符串
+        for date_field in ("next_review_date", "cycle_start_date"):
+            if date_field in updates and hasattr(updates[date_field], "isoformat"):
+                updates[date_field] = updates[date_field].isoformat()
+        set_clause = ", ".join(f"{k}=?" for k in updates)
+        values = list(updates.values()) + [item_id]
+        self.conn.execute(f"UPDATE items SET {set_clause} WHERE id=?", values)
+        self.conn.commit()
+
+    def log_review(self, item_id: int, review_date, stage_completed: int, result: str):
+        self.conn.execute(
+            """INSERT INTO review_logs (item_id, review_date, stage_completed, result)
+               VALUES (?, ?, ?, ?)""",
+            (item_id, review_date.isoformat(), stage_completed, result)
+        )
+        self.conn.commit()
+
     def close(self):
         self.conn.close()

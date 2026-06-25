@@ -91,3 +91,28 @@ def test_get_mastered_items_returns_only_mastered(tmp_path):
     mastered = db.get_mastered_items()
     assert len(mastered) == 1
     assert mastered[0]["title"] == "A"
+
+def test_update_item_status_and_stage(tmp_path):
+    from datetime import date, timedelta
+    db = Database(str(tmp_path / "test.db"))
+    db.init()
+    today = date(2026, 6, 25)
+    item_id = db.create_item("A", "cA", today, today)
+
+    db.update_item(item_id, status="pending_mastery", current_stage=6,
+                   next_review_date=today, cycle_start_date=today, cycle_type="full")
+    item = db.get_item(item_id)
+    assert item["status"] == "pending_mastery"
+    assert item["current_stage"] == 6
+
+def test_log_review_records_entry(tmp_path):
+    from datetime import date
+    db = Database(str(tmp_path / "test.db"))
+    db.init()
+    today = date(2026, 6, 25)
+    item_id = db.create_item("A", "cA", today, today)
+
+    db.log_review(item_id, today, stage_completed=1, result="done")
+    cursor = db.conn.execute("SELECT item_id, review_date, stage_completed, result FROM review_logs")
+    row = cursor.fetchone()
+    assert row == (item_id, today.isoformat(), 1, "done")
