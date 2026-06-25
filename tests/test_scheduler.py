@@ -100,3 +100,27 @@ def test_confirm_mastery_forgotten_restarts_full_cycle():
     assert result["current_stage"] == 1
     assert result["cycle_start_date"] == today
     assert result["next_review_date"] == today + timedelta(days=1)
+
+def test_is_due_today_true_when_next_review_equals_today():
+    s = Scheduler()
+    today = date(2026, 6, 25)
+    item = {"next_review_date": today, "status": "learning"}
+    assert s.is_due_today(item, today) is True
+
+def test_is_due_today_true_when_next_review_before_today():
+    s = Scheduler()
+    today = date(2026, 6, 25)
+    item = {"next_review_date": today - timedelta(days=2), "status": "learning"}
+    assert s.is_due_today(item, today) is True
+
+def test_is_due_today_false_when_future():
+    s = Scheduler()
+    today = date(2026, 6, 25)
+    item = {"next_review_date": today + timedelta(days=1), "status": "learning"}
+    assert s.is_due_today(item, today) is False
+
+def test_is_due_today_false_when_mastered():
+    s = Scheduler()
+    today = date(2026, 6, 25)
+    item = {"next_review_date": today, "status": "mastered"}
+    assert s.is_due_today(item, today) is False

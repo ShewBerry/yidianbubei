@@ -63,3 +63,11 @@ class Scheduler:
                 "next_review_date": today + timedelta(days=1)
             }
         raise ValueError(f"未知的掌握确认结果: {result}")
+
+    def is_due_today(self, item: dict, today: date) -> bool:
+        if item["status"] == "mastered":
+            return False
+        next_review = item["next_review_date"]
+        if isinstance(next_review, str):
+            next_review = date.fromisoformat(next_review)
+        return next_review <= today
