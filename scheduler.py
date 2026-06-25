@@ -71,3 +71,9 @@ class Scheduler:
         if isinstance(next_review, str):
             next_review = date.fromisoformat(next_review)
         return next_review <= today
+
+    def stage_description(self, stage: int, cycle_type: str) -> str:
+        cycle = self.SHORT_CYCLE if cycle_type == "short" else self.FULL_CYCLE
+        if stage < 1 or stage > len(cycle):
+            return f"第{stage}次复习"
+        return f"第{stage}次复习（{cycle[stage - 1]}天后）"
