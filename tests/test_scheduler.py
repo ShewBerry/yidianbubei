@@ -9,7 +9,7 @@ def test_short_cycle_intervals():
     s = Scheduler()
     assert s.SHORT_CYCLE == [1, 3, 7]
 
-def test_schedule_new_item_first_review_tomorrow():
+def test_schedule_new_item_first_review_today():
     s = Scheduler()
     today = date(2026, 6, 25)
     schedule = s.schedule_new_item(today)
@@ -17,22 +17,23 @@ def test_schedule_new_item_first_review_tomorrow():
     assert schedule["current_stage"] == 1
     assert schedule["cycle_type"] == "full"
     assert schedule["cycle_start_date"] == today
-    assert schedule["next_review_date"] == today + timedelta(days=1)
+    # 导入当天即第1次复习日
+    assert schedule["next_review_date"] == today
 
 def test_mark_reviewed_advances_stage_in_full_cycle():
     s = Scheduler()
     today = date(2026, 6, 25)
-    # 当前在阶段1，打卡后应进入阶段2，下次复习=今天+2天
+    # 当前在阶段1，打卡后应进入阶段2，下次复习=今天+1天（阶段1的间隔）
     item = {
         "status": "learning", "current_stage": 1, "cycle_type": "full",
-        "cycle_start_date": today - timedelta(days=1),
+        "cycle_start_date": today,
         "next_review_date": today
     }
     result = s.mark_reviewed(item, today)
     assert result["status"] == "learning"
     assert result["current_stage"] == 2
     assert result["cycle_type"] == "full"
-    assert result["next_review_date"] == today + timedelta(days=2)
+    assert result["next_review_date"] == today + timedelta(days=1)
 
 def test_mark_reviewed_last_stage_enters_pending_mastery():
     s = Scheduler()
@@ -62,12 +63,12 @@ def test_mark_reviewed_uses_short_cycle_intervals():
     today = date(2026, 6, 25)
     item = {
         "status": "learning", "current_stage": 1, "cycle_type": "short",
-        "cycle_start_date": today - timedelta(days=1),
+        "cycle_start_date": today,
         "next_review_date": today
     }
     result = s.mark_reviewed(item, today)
     assert result["current_stage"] == 2
-    assert result["next_review_date"] == today + timedelta(days=3)
+    assert result["next_review_date"] == today + timedelta(days=1)  # SHORT_CYCLE[0]=1
 
 def test_confirm_mastery_mastered():
     s = Scheduler()
@@ -87,7 +88,8 @@ def test_confirm_mastery_fuzzy_enters_short_cycle():
     assert result["cycle_type"] == "short"
     assert result["current_stage"] == 1
     assert result["cycle_start_date"] == today
-    assert result["next_review_date"] == today + timedelta(days=1)
+    # 短周期第1次复习就在今天
+    assert result["next_review_date"] == today
 
 def test_confirm_mastery_forgotten_restarts_full_cycle():
     s = Scheduler()
@@ -99,7 +101,8 @@ def test_confirm_mastery_forgotten_restarts_full_cycle():
     assert result["cycle_type"] == "full"
     assert result["current_stage"] == 1
     assert result["cycle_start_date"] == today
-    assert result["next_review_date"] == today + timedelta(days=1)
+    # 完整周期第1次复习就在今天
+    assert result["next_review_date"] == today
 
 def test_is_due_today_true_when_next_review_equals_today():
     s = Scheduler()
@@ -140,9 +143,11 @@ def test_stage_description_pending_mastery():
     assert s.stage_description(6, "full") == "第6次复习（30天后）"
 
 # ===== backfill_schedule 测试 =====
-# FULL_CYCLE = [1, 2, 4, 7, 15, 30]，累计天数：1, 3, 7, 14, 29, 59
+# FULL_CYCLE = [1, 2, 4, 7, 15, 30]
+# 新语义：导入当天即第1次复习。阶段N复习日 = start + 前N-1个间隔之和
+# 累计天数（距导入日）：stage1=0, stage2=1, stage3=3, stage4=7, stage5=14, stage6=29
 
-def test_backfill_start_date_is_today_stage1_tomorrow():
+def test_backfill_start_date_is_today_stage1_today():
     s = Scheduler()
     today = date(2026, 6, 25)
     result = s.backfill_schedule(today, today)
@@ -150,43 +155,42 @@ def test_backfill_start_date_is_today_stage1_tomorrow():
     assert result["current_stage"] == 1
     assert result["cycle_type"] == "full"
     assert result["cycle_start_date"] == today
-    # 阶段1累计1天，应复习日 = today+1
-    assert result["next_review_date"] == today + timedelta(days=1)
+    # 导入当天即第1次复习日
+    assert result["next_review_date"] == today
 
-def test_backfill_two_days_ago_stage2():
-    # 2天前开始：阶段1累计1天(昨天到期)，阶段2累计3天(明天到期)
-    # 今天是第2天，阶段1已过期，下一个>=today的是阶段2(today+1)
+def test_backfill_two_days_ago_stage3():
+    # 2天前开始：stage1=start(2天前), stage2=start+1(1天前), stage3=start+3(明天)
+    # 今天=stage1和stage2已过期，下一个>=today的是stage3(today+1)
     s = Scheduler()
     today = date(2026, 6, 25)
     start = today - timedelta(days=2)
     result = s.backfill_schedule(start, today)
     assert result["status"] == "learning"
-    assert result["current_stage"] == 2
+    assert result["current_stage"] == 3
     assert result["cycle_start_date"] == start
-    # 阶段2累计3天，应复习日 = start+3 = today+1
+    # stage3复习日 = start+3 = today+1
     assert result["next_review_date"] == today + timedelta(days=1)
 
 def test_backfill_exactly_at_stage_boundary():
-    # 3天前开始：阶段1累计1天(2天前到期)，阶段2累计3天(今天到期)
+    # 3天前开始：stage3复习日 = start+3 = today（正好今天到期）
     s = Scheduler()
     today = date(2026, 6, 25)
     start = today - timedelta(days=3)
     result = s.backfill_schedule(start, today)
-    assert result["current_stage"] == 2
-    # 阶段2应复习日 = start+3 = today
+    assert result["current_stage"] == 3
     assert result["next_review_date"] == today
 
-def test_backfill_10_days_ago_stage4():
-    # 10天前开始：累计天数 1,3,7,14 → 阶段4应复习日=start+14=today+4
+def test_backfill_10_days_ago_stage5():
+    # 10天前开始：累计0,1,3,7,14 → stage5复习日=start+14=today+4
     s = Scheduler()
     today = date(2026, 6, 25)
     start = today - timedelta(days=10)
     result = s.backfill_schedule(start, today)
-    assert result["current_stage"] == 4
+    assert result["current_stage"] == 5
     assert result["next_review_date"] == start + timedelta(days=14)
 
 def test_backfill_60_days_ago_enters_pending_mastery():
-    # 60天前开始：最后一个阶段累计59天，应复习日=start+59=today-1 < today
+    # 60天前开始：最后一个阶段(stage6)复习日=start+29=today-31 < today
     # 所有阶段都过期，进入待确认掌握
     s = Scheduler()
     today = date(2026, 6, 25)
@@ -202,4 +206,5 @@ def test_schedule_new_item_with_explicit_start_date():
     start = today - timedelta(days=5)
     result = s.schedule_new_item(today, start_date=start)
     assert result["cycle_start_date"] == start
-    assert result["current_stage"] == 3  # 累计7天，start+7=today+2
+    # 累计0,1,3,7 → stage4复习日=start+7=today+2
+    assert result["current_stage"] == 4
