@@ -44,5 +44,41 @@ class Database:
         self.conn.commit()
         return cursor.lastrowid
 
+    def _row_to_item(self, row) -> dict:
+        return {
+            "id": row[0], "title": row[1], "content": row[2],
+            "created_date": row[3], "status": row[4], "current_stage": row[5],
+            "next_review_date": row[6], "cycle_start_date": row[7], "cycle_type": row[8]
+        }
+
+    def get_due_items(self, today) -> list:
+        cursor = self.conn.execute(
+            """SELECT * FROM items
+               WHERE status IN ('learning', 'pending_mastery')
+                 AND next_review_date <= ?
+               ORDER BY next_review_date ASC""",
+            (today.isoformat(),)
+        )
+        return [self._row_to_item(row) for row in cursor.fetchall()]
+
+    def get_active_items(self) -> list:
+        cursor = self.conn.execute(
+            """SELECT * FROM items
+               WHERE status IN ('learning', 'pending_mastery')
+               ORDER BY next_review_date ASC"""
+        )
+        return [self._row_to_item(row) for row in cursor.fetchall()]
+
+    def get_mastered_items(self) -> list:
+        cursor = self.conn.execute(
+            "SELECT * FROM items WHERE status='mastered' ORDER BY created_date DESC"
+        )
+        return [self._row_to_item(row) for row in cursor.fetchall()]
+
+    def get_item(self, item_id: int) -> dict:
+        cursor = self.conn.execute("SELECT * FROM items WHERE id=?", (item_id,))
+        row = cursor.fetchone()
+        return self._row_to_item(row) if row else None
+
     def close(self):
         self.conn.close()
