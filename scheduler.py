@@ -12,3 +12,27 @@ class Scheduler:
             "cycle_start_date": today,
             "next_review_date": today + timedelta(days=1)
         }
+
+    def mark_reviewed(self, item: dict, review_date: date) -> dict:
+        cycle = self.SHORT_CYCLE if item["cycle_type"] == "short" else self.FULL_CYCLE
+        current_stage = item["current_stage"]
+
+        if current_stage >= len(cycle):
+            # 已是最后阶段，进入待确认掌握
+            return {
+                "status": "pending_mastery",
+                "current_stage": current_stage,
+                "cycle_type": item["cycle_type"],
+                "cycle_start_date": item["cycle_start_date"],
+                "next_review_date": review_date
+            }
+
+        next_stage = current_stage + 1
+        next_interval = cycle[next_stage - 1]  # 阶段序号1-based，列表0-based
+        return {
+            "status": "learning",
+            "current_stage": next_stage,
+            "cycle_type": item["cycle_type"],
+            "cycle_start_date": item["cycle_start_date"],
+            "next_review_date": review_date + timedelta(days=next_interval)
+        }
