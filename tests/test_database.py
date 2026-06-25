@@ -20,3 +20,17 @@ def test_init_creates_tables(tmp_path):
     cursor = db.conn.execute("PRAGMA table_info(review_logs)")
     columns = {row[1] for row in cursor.fetchall()}
     assert columns == {"id", "item_id", "review_date", "stage_completed", "result"}
+
+def test_create_item_returns_id_and_persists(tmp_path):
+    from datetime import date, timedelta
+    db = Database(str(tmp_path / "test.db"))
+    db.init()
+
+    today = date(2026, 6, 25)
+    next_review = today + timedelta(days=1)
+    item_id = db.create_item("静夜思", "床前明月光...", today, next_review)
+
+    assert item_id > 0
+    cursor = db.conn.execute("SELECT title, content, status, current_stage, cycle_type FROM items WHERE id=?", (item_id,))
+    row = cursor.fetchone()
+    assert row == ("静夜思", "床前明月光...", "learning", 1, "full")

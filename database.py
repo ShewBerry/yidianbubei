@@ -34,5 +34,15 @@ class Database:
         """)
         self.conn.commit()
 
+    def create_item(self, title: str, content: str, created_date, next_review_date) -> int:
+        cursor = self.conn.execute(
+            """INSERT INTO items (title, content, created_date, status, current_stage,
+                                   next_review_date, cycle_start_date, cycle_type)
+               VALUES (?, ?, ?, 'learning', 1, ?, ?, 'full')""",
+            (title, content, created_date.isoformat(), next_review_date.isoformat(), created_date.isoformat())
+        )
+        self.conn.commit()
+        return cursor.lastrowid
+
     def close(self):
         self.conn.close()
