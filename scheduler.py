@@ -36,3 +36,30 @@ class Scheduler:
             "cycle_start_date": item["cycle_start_date"],
             "next_review_date": review_date + timedelta(days=next_interval)
         }
+
+    def confirm_mastery(self, item: dict, today: date, result: str) -> dict:
+        if result == "mastered":
+            return {
+                "status": "mastered",
+                "current_stage": item["current_stage"],
+                "cycle_type": item["cycle_type"],
+                "cycle_start_date": item["cycle_start_date"],
+                "next_review_date": item["next_review_date"]
+            }
+        if result == "fuzzy":
+            return {
+                "status": "learning",
+                "current_stage": 1,
+                "cycle_type": "short",
+                "cycle_start_date": today,
+                "next_review_date": today + timedelta(days=1)
+            }
+        if result == "forgotten":
+            return {
+                "status": "learning",
+                "current_stage": 1,
+                "cycle_type": "full",
+                "cycle_start_date": today,
+                "next_review_date": today + timedelta(days=1)
+            }
+        raise ValueError(f"未知的掌握确认结果: {result}")

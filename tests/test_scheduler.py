@@ -68,3 +68,35 @@ def test_mark_reviewed_uses_short_cycle_intervals():
     result = s.mark_reviewed(item, today)
     assert result["current_stage"] == 2
     assert result["next_review_date"] == today + timedelta(days=3)
+
+def test_confirm_mastery_mastered():
+    s = Scheduler()
+    today = date(2026, 6, 25)
+    item = {"status": "pending_mastery", "current_stage": 6, "cycle_type": "full",
+            "cycle_start_date": today, "next_review_date": today}
+    result = s.confirm_mastery(item, today, "mastered")
+    assert result["status"] == "mastered"
+
+def test_confirm_mastery_fuzzy_enters_short_cycle():
+    s = Scheduler()
+    today = date(2026, 6, 25)
+    item = {"status": "pending_mastery", "current_stage": 6, "cycle_type": "full",
+            "cycle_start_date": today, "next_review_date": today}
+    result = s.confirm_mastery(item, today, "fuzzy")
+    assert result["status"] == "learning"
+    assert result["cycle_type"] == "short"
+    assert result["current_stage"] == 1
+    assert result["cycle_start_date"] == today
+    assert result["next_review_date"] == today + timedelta(days=1)
+
+def test_confirm_mastery_forgotten_restarts_full_cycle():
+    s = Scheduler()
+    today = date(2026, 6, 25)
+    item = {"status": "pending_mastery", "current_stage": 3, "cycle_type": "short",
+            "cycle_start_date": today, "next_review_date": today}
+    result = s.confirm_mastery(item, today, "forgotten")
+    assert result["status"] == "learning"
+    assert result["cycle_type"] == "full"
+    assert result["current_stage"] == 1
+    assert result["cycle_start_date"] == today
+    assert result["next_review_date"] == today + timedelta(days=1)
