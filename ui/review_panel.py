@@ -28,6 +28,13 @@ class ReviewPanel(ctk.CTkFrame):
         self.refresh()
 
     def refresh(self):
+        # 若队列中仍有条目（背诵进行中），仅重新渲染当前卡片，
+        # 不从数据库重建队列——避免 on_data_changed 回调导致重背条目丢失
+        # （重背条目的 next_review_date 已更新为未来日期，不在 get_due_items 中）
+        if self.queue:
+            self._render_current_card()
+            return
+
         for widget in self.card_frame.winfo_children():
             widget.destroy()
 
@@ -132,12 +139,10 @@ class ReviewPanel(ctk.CTkFrame):
             # 移到队列末尾，标记为重背
             current["is_retest"] = True
             current["show_content"] = False
-            # 更新item字典以反映新状态
+            # 更新item字典以反映新状态（update_fields 已含非None的next_review_date）
             item.update(update_fields)
-            if sched_result["next_review_date"] is not None:
-                item["next_review_date"] = sched_result["next_review_date"]
-            self.queue.append(current)
             self.queue.pop(0)
+            self.queue.append(current)
         else:
             # 完成或移出队列
             self.queue.pop(0)
