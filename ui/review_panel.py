@@ -67,6 +67,8 @@ class ReviewPanel(ctk.CTkFrame):
             else:
                 ctk.CTkButton(btn_frame, text="打卡复习", fg_color="#3498db",
                               command=lambda: self._mark_reviewed(item, today)).pack(side="right", padx=(5, 0))
+                ctk.CTkButton(btn_frame, text="补签", fg_color="#f39c12", hover_color="#d68910",
+                              width=70, command=lambda: self._backfill_review(item)).pack(side="right", padx=(0, 5))
 
             ctk.CTkButton(btn_frame, text="收起", fg_color="gray",
                           width=80, command=self._collapse).pack(side="right")
@@ -107,6 +109,25 @@ class ReviewPanel(ctk.CTkFrame):
         EditItemDialog(self, self.db, item,
                        on_saved_callback=lambda _id: self.on_data_changed() if self.on_data_changed else self.refresh(),
                        on_deleted_callback=lambda _id: self.on_data_changed() if self.on_data_changed else self.refresh())
+
+    def _backfill_review(self, item):
+        from ui.backfill_dialog import BackfillReviewDialog
+        BackfillReviewDialog(self, item, self._handle_backfill)
+
+    def _handle_backfill(self, item, review_date):
+        """补签：用历史日期作为复习日，推进阶段并从该日期重算下次复习。"""
+        result = self.scheduler.mark_reviewed(item, review_date)
+        self.db.update_item(
+            item["id"],
+            status=result["status"],
+            current_stage=result["current_stage"],
+            cycle_type=result["cycle_type"],
+            cycle_start_date=result["cycle_start_date"],
+            next_review_date=result["next_review_date"]
+        )
+        self.db.log_review(item["id"], review_date, item["current_stage"], "backfilled")
+        if self.on_data_changed:
+            self.on_data_changed()
 
     def _handle_mastery_result(self, item, result):
         today = date.today()

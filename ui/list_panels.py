@@ -92,6 +92,9 @@ class AllItemsPanel(ctk.CTkFrame):
                           command=self._collapse).pack(side="right")
             ctk.CTkButton(btn_frame, text="编辑", fg_color="#7f8c8d", hover_color="#95a5a6",
                           width=70, command=lambda: self._edit_item(item)).pack(side="right", padx=(0, 5))
+            if item["status"] != "pending_mastery":
+                ctk.CTkButton(btn_frame, text="补签", fg_color="#f39c12", hover_color="#d68910",
+                              width=70, command=lambda: self._backfill_review(item)).pack(side="right", padx=(0, 5))
         else:
             ctk.CTkButton(card, text="展开", width=80, fg_color="gray",
                           command=lambda: self._expand(item["id"])).pack(padx=10, pady=(0, 8), anchor="e")
@@ -109,6 +112,23 @@ class AllItemsPanel(ctk.CTkFrame):
         EditItemDialog(self, self.db, item,
                        on_saved_callback=lambda _id: self.refresh(),
                        on_deleted_callback=lambda _id: self.refresh())
+
+    def _backfill_review(self, item):
+        from ui.backfill_dialog import BackfillReviewDialog
+        BackfillReviewDialog(self, item, self._handle_backfill)
+
+    def _handle_backfill(self, item, review_date):
+        result = self.scheduler.mark_reviewed(item, review_date)
+        self.db.update_item(
+            item["id"],
+            status=result["status"],
+            current_stage=result["current_stage"],
+            cycle_type=result["cycle_type"],
+            cycle_start_date=result["cycle_start_date"],
+            next_review_date=result["next_review_date"]
+        )
+        self.db.log_review(item["id"], review_date, item["current_stage"], "backfilled")
+        self.refresh()
 
 
 class MasteredPanel(ctk.CTkFrame):
