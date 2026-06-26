@@ -40,12 +40,12 @@ ROUND1_INTERVALS = [1, 2, 3, 5, 8, 13, 21, 34]
 
 **二轮**（`round=2`，手动触发）：
 ```
-ROUND2_INTERVALS = [3, 7, 14, 30]
+ROUND2_INTERVALS = [3, 7, 14]
 ```
 - 触发时：`round=2`, `interval=0`, `consecutive_correct=0`, `status=learning`
-- 第4次点「记得」：`consecutive_correct=4` → 二轮完成，`status=archived`
+- 第3次点「记得」：`consecutive_correct=3` → 二轮完成，`status=archived`
 
-二轮总时长约 3+7+14+30 = 54天 ≈ 2个月
+二轮总时长约 3+7+14 = 24天 ≈ 3周
 
 ### 2.3 反馈处理规则（4级评分系统）
 
@@ -301,7 +301,7 @@ CREATE TABLE review_logs (
 ```python
 class Scheduler:
     ROUND1_INTERVALS = [1, 2, 3, 5, 8, 13, 21, 34]
-    ROUND2_INTERVALS = [3, 7, 14, 30]
+    ROUND2_INTERVALS = [3, 7, 14]
 
     def schedule_new_item(self, today):
         """新建条目初始状态：今天就要背第1次"""
