@@ -277,3 +277,80 @@ def test_update_item_notes(db):
     db.update_item(item_id, notes="这是笔记")
     item = db.get_item(item_id)
     assert item["notes"] == "这是笔记"
+
+
+def test_add_and_get_marks(db):
+    """新增标记并查询"""
+    today = date(2026, 6, 26)
+    item_id = db.create_item("测试", "abcdefg", today, today)
+    mark_id = db.add_mark(item_id, 2, 5, "forgot")
+    assert mark_id > 0
+    marks = db.get_marks(item_id)
+    assert len(marks) == 1
+    assert marks[0]["start_pos"] == 2
+    assert marks[0]["end_pos"] == 5
+    assert marks[0]["mark_type"] == "forgot"
+    assert marks[0]["id"] == mark_id
+
+
+def test_get_marks_sorted_by_start(db):
+    """get_marks 应按 start_pos 升序返回"""
+    today = date(2026, 6, 26)
+    item_id = db.create_item("测试", "abcdefg", today, today)
+    db.add_mark(item_id, 5, 7, "fuzzy")
+    db.add_mark(item_id, 0, 2, "forgot")
+    marks = db.get_marks(item_id)
+    assert marks[0]["start_pos"] == 0
+    assert marks[1]["start_pos"] == 5
+
+
+def test_delete_mark(db):
+    """删除标记"""
+    today = date(2026, 6, 26)
+    item_id = db.create_item("测试", "abcdefg", today, today)
+    mark_id = db.add_mark(item_id, 0, 2, "forgot")
+    db.delete_mark(mark_id)
+    marks = db.get_marks(item_id)
+    assert len(marks) == 0
+
+
+def test_delete_item_cascades_marks(db):
+    """删除条目时标记应级联删除"""
+    today = date(2026, 6, 26)
+    item_id = db.create_item("测试", "abcdefg", today, today)
+    db.add_mark(item_id, 0, 2, "forgot")
+    db.delete_item(item_id)
+    marks = db.get_marks(item_id)
+    assert len(marks) == 0
+
+
+def test_get_marks_filters_invalid(db):
+    """get_marks 应过滤掉 start>=end 或超出 content 长度的非法标记"""
+    today = date(2026, 6, 26)
+    item_id = db.create_item("测试", "abc", today, today)
+    db.add_mark(item_id, 0, 3, "forgot")    # 合法
+    db.add_mark(item_id, 2, 2, "fuzzy")     # 非法：start==end
+    db.add_mark(item_id, 0, 10, "fuzzy")    # 非法：end 超出 content 长度
+    marks = db.get_marks(item_id)
+    assert len(marks) == 1
+    assert marks[0]["start_pos"] == 0
+
+
+def test_setting_get_and_set(db):
+    """settings 读写"""
+    assert db.get_setting("content_font_size", "14") == "14"
+    db.set_setting("content_font_size", "18")
+    assert db.get_setting("content_font_size", "14") == "18"
+    db.set_setting("content_font_size", "20")
+    assert db.get_setting("content_font_size", "14") == "20"
+
+
+def test_setting_persists_across_connection(db):
+    """settings 应跨连接持久化"""
+    db.set_setting("content_box_height", "400")
+    db_path = db.db_path
+    db.close()
+    db2 = Database(db_path)
+    db2.init()
+    assert db2.get_setting("content_box_height", "200") == "400"
+    db2.close()

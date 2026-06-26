@@ -179,6 +179,7 @@ class Database:
 
     def delete_item(self, item_id: int):
         self.conn.execute("DELETE FROM review_logs WHERE item_id=?", (item_id,))
+        self.conn.execute("DELETE FROM item_marks WHERE item_id=?", (item_id,))
         self.conn.execute("DELETE FROM items WHERE id=?", (item_id,))
         self.conn.commit()
 
@@ -288,6 +289,51 @@ class Database:
             result.append({"id": cat_id, "name": cat_name, "total": row[0],
                            "learning": row[1] or 0, "mastered": row[2] or 0, "archived": row[3] or 0})
         return result
+
+    # ===== 标记 CRUD =====
+    def add_mark(self, item_id: int, start_pos: int, end_pos: int, mark_type: str) -> int:
+        from datetime import date as _date
+        today_str = _date.today().isoformat()
+        cursor = self.conn.execute(
+            """INSERT INTO item_marks (item_id, start_pos, end_pos, mark_type, created_date)
+               VALUES (?, ?, ?, ?, ?)""",
+            (item_id, start_pos, end_pos, mark_type, today_str))
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def get_marks(self, item_id: int) -> list:
+        """返回该条目的所有合法标记，按 start_pos 升序。
+        过滤掉 start>=end 或超出当前 content 长度的非法标记（容错：编辑后位置漂移）。
+        """
+        item = self.get_item(item_id)
+        content_len = len(item["content"]) if item else 0
+        cursor = self.conn.execute(
+            """SELECT id, item_id, start_pos, end_pos, mark_type, created_date
+               FROM item_marks WHERE item_id=? ORDER BY start_pos ASC""", (item_id,))
+        marks = []
+        for r in cursor.fetchall():
+            start, end = r[2], r[3]
+            if start < end and end <= content_len:
+                marks.append({"id": r[0], "item_id": r[1], "start_pos": start,
+                              "end_pos": end, "mark_type": r[4], "created_date": r[5]})
+        return marks
+
+    def delete_mark(self, mark_id: int):
+        self.conn.execute("DELETE FROM item_marks WHERE id=?", (mark_id,))
+        self.conn.commit()
+
+    # ===== 设置 CRUD =====
+    def get_setting(self, key: str, default: str = "") -> str:
+        cursor = self.conn.execute("SELECT value FROM settings WHERE key=?", (key,))
+        row = cursor.fetchone()
+        return row[0] if row else default
+
+    def set_setting(self, key: str, value: str):
+        self.conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value))
+        self.conn.commit()
 
     def close(self):
         self.conn.close()
