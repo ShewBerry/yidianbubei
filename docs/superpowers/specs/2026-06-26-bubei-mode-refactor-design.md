@@ -47,54 +47,83 @@ ROUND2_INTERVALS = [3, 7, 14, 30]
 
 二轮总时长约 3+7+14+30 = 54天 ≈ 2个月
 
-### 2.3 反馈处理规则
+### 2.3 反馈处理规则（4级评分系统）
 
-用户点击三选项之一后：
+用户看到标题后回忆，点击「展示内容」查看正文，对照后进行4级自评：
 
-**记得 (remember)**：
+**完全正确 (perfect)**：
 ```
 consecutive_correct += 1
 if consecutive_correct >= len(当前轮次序列):
     # 本轮完成，不再调度
     status = mastered (一轮) 或 archived (二轮)
     interval = 序列最后一项（仅作记录，不再用于调度）
-    next_review_date = null（标记为不再调度）
+    next_review_date = ""  # 空字符串表示不再调度
 else:
     interval = 序列[consecutive_correct - 1]
     next_review_date = today + interval
 memory_strength = min(1.0, memory_strength + 0.05)
+# 移出今日队列
 ```
 
-**注**：`next_review_date` 为 null 时，`get_due_items` 查询自动排除。数据库字段保持 NOT NULL，用空字符串 '' 表示 null，查询时 `WHERE next_review_date != '' AND next_review_date <= today`。
+**注**：`next_review_date` 为空字符串时，`get_due_items` 查询自动排除。查询条件 `WHERE next_review_date != '' AND next_review_date <= today`。
 
-**模糊 (fuzzy)**：
+**基本正确 (mostly_correct)**：
 ```
-interval = max(1, interval // 2)  # 当前间隔减半，至少1天
-consecutive_correct 不变（不递增也不重置）
-memory_strength = max(0.1, memory_strength * 0.9)
+# 间隔按完全正确逻辑递增，consecutive_correct 也 +1
+consecutive_correct += 1
+if consecutive_correct >= len(当前轮次序列):
+    # 本轮完成（同完全正确）
+    status = mastered 或 archived
+    interval = 序列最后一项
+    next_review_date = ""
+else:
+    interval = 序列[consecutive_correct - 1]
+    next_review_date = today + interval
+memory_strength = min(1.0, memory_strength + 0.03)
+# 但移到今日队列末尾，当日加强记忆（需再背一次）
+```
+
+**部分正确 (partial)**：
+```
+# 间隔回退2步，consecutive_correct 也减2（与间隔回退对应）
+new_correct = max(0, consecutive_correct - 2)
+consecutive_correct = new_correct
+interval = 序列[max(0, new_correct - 1)] if new_correct > 0 else 1
+# 若 new_correct=0，interval=1（回到初始）
+memory_strength = max(0.1, memory_strength * 0.8)
 next_review_date = today + interval
-# 条目加入今日队列末尾，需再背
+# 移到今日队列末尾，需再背
 ```
 
-**忘记 (forget)**：
+**记错了 (wrong)**：
 ```
 interval = 1
 consecutive_correct = 0  # 重置
 memory_strength = max(0.1, memory_strength * 0.5)
 next_review_date = today + 1
-# 条目加入今日队列末尾，需再背
+# 移到今日队列末尾，需再背
 ```
 
 ### 2.4 今日队列逻辑
 
 - 每日初始队列 = `next_review_date <= today AND next_review_date != '' AND status='learning'` 的条目
 - 按到期日期升序排列
-- 展示时**只显示标题**，用户回忆后点三选项之一
-- 点「记得」：移出今日队列，安排下次日期
-- 点「模糊/忘记」：移到今日队列**末尾**，当日需再背一次
+- 展示时**只显示标题**，用户点击「展示内容」后看正文
+- 看完后进行4级自评：
+  - **完全正确**：移出今日队列，安排下次日期
+  - **基本正确**：移到今日队列**末尾**当日加强（间隔已正常递增，只是当日再背一次）
+  - **部分正确**：移到今日队列**末尾**重背（间隔回退2步）
+  - **记错了**：移到今日队列**末尾**重背（间隔重置为1）
 - 队列空了 → 今日背诵完成
 
-**防无限循环**：同一条目在今日队列中可出现多次（每次模糊/忘记都追加一份到末尾），但这是预期行为——用户需确实记住才能完成。若用户中途关闭面板，下次打开时队列重新从数据库查询生成，已「记得」的不会重复出现，未完成的会重新进入队列。
+**防无限循环**：同一条目在今日队列中可出现多次（每次非「完全正确」都追加一份到末尾），这是预期行为——用户需确实完全记住才能移出队列。若用户中途关闭面板，下次打开时队列重新从数据库查询生成，已「完全正确」的不会重复出现，其余的会重新进入队列。
+
+**「基本正确」的特殊处理**：虽然 interval 已按完全正确递增并安排了下次日期，但当日仍需再背一次。实现方式：将该条目追加到内存队列末尾（不修改数据库的 next_review_date），当再次轮到时若点「完全正确」则真正移出；若再点「基本正确」则间隔不再二次递增（避免重复加分），仅继续追加到末尾。
+
+为避免「基本正确」导致 interval 重复递增，算法实现时区分「首次评分」和「重背评分」：
+- 首次评分（条目今日首次出现）：按2.3节规则正常计算
+- 重背评分（条目今日非首次出现）：consecutive_correct 和 interval 只按评分结果调整，但不重复递增（即「基本正确」在重背时不再 +1，仅追加到末尾）
 
 ### 2.5 二轮巩固触发
 
@@ -151,7 +180,7 @@ CREATE TABLE review_logs (
     item_id INTEGER NOT NULL,
     review_date TEXT NOT NULL,
     round INTEGER NOT NULL,                    -- 属于哪轮
-    result TEXT NOT NULL,                      -- remember / fuzzy / forget
+    result TEXT NOT NULL,                      -- perfect / mostly_correct / partial / wrong
     interval_after INTEGER,                    -- 本次打卡后的新间隔
     FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
 );
@@ -174,29 +203,39 @@ CREATE TABLE review_logs (
 
 **卡片式布局**（借鉴不背单词）：
 
+**阶段一：只显示标题**
 ```
 ┌─────────────────────────────────┐
 │  《静夜思》          第3次背诵   │  ← 只显示标题+次数
 │                                  │
-│        [记得]  [模糊]  [忘记]    │  ← 三选项按钮
+│         [展示内容]               │  ← 回忆后点击查看正文
+└─────────────────────────────────┘
+```
+
+**阶段二：展示内容 + 4级自评**
+```
+┌─────────────────────────────────┐
+│  《静夜思》          第3次背诵   │
+│ ┌─────────────────────────────┐ │
+│ │ 床前明月光，疑是地上霜。     │ │  ← 正文展示
+│ │ 举头望明月，低头思故乡。     │ │
+│ └─────────────────────────────┘ │
+│ [完全正确][基本正确][部分正确][记错了] │  ← 4级自评
 └─────────────────────────────────┘
 ```
 
 - 一次只显示一张卡片（队列首位）
-- 用户点击选项后：
-  - 若点「记得」→ 展示内容几秒确认，然后切换到下一张
-  - 若点「模糊/忘记」→ 展示内容供重背，然后该卡片移到队列末尾
 - 队列进度显示：「3/12 已完成」
 - 队列空了 → 显示「🎉 今日背诵完成」
 
 **详细交互**：
-1. 进入面板：显示队列第1张卡片（只标题）
+1. 进入面板：显示队列第1张卡片（只标题）+「展示内容」按钮
 2. 用户心里回忆
-3. 点击三选项之一
-4. 卡片展开显示内容（让用户对照）
-5. 若「记得」：1.5秒后自动切到下一张，或用户点「下一张」
-6. 若「模糊/忘记」：用户看完内容后点「继续背诵」，该卡片移到队列末尾
-7. 循环直到队列空
+3. 点击「展示内容」→ 卡片展开显示正文 + 4级自评按钮
+4. 用户对照后点击4级之一：
+   - **完全正确**：1.5秒后自动切到下一张，或用户点「下一张」
+   - **基本正确/部分正确/记错了**：用户看完内容后点「继续背诵」，该卡片移到队列末尾
+5. 循环直到队列空
 
 ### 4.2 全部条目面板（适配新字段）
 
@@ -224,24 +263,25 @@ CREATE TABLE review_logs (
 
 - 列：日期 / 轮次 / 结果 / 打卡后间隔
 - 结果映射：
-  - `remember` → 记得
-  - `fuzzy` → 模糊
-  - `forget` → 忘记
+  - `perfect` → 完全正确
+  - `mostly_correct` → 基本正确
+  - `partial` → 部分正确
+  - `wrong` → 记错了
 
 ## 5. 模块改动清单
 
 ### 5.1 重写
 
-- `scheduler.py`：完全重写，新算法
+- `scheduler.py`：完全重写，4级评分算法
 - `database.py`：表结构重写，新增 round/interval 等字段，删除旧阶段字段
-- `ui/review_panel.py`：改为卡片式单张展示，三选项交互
+- `ui/review_panel.py`：改为卡片式单张展示，4级评分交互
 
 ### 5.2 适配修改
 
 - `ui/list_panels.py`：状态文案、补签逻辑适配新字段
-- `ui/history_dialog.py`：列名和结果映射适配
+- `ui/history_dialog.py`：列名和结果映射适配4级评分
 - `ui/main_window.py`：标签页文案微调
-- `ui/backfill_dialog.py`：补签时需选择 result（记得/模糊/忘记）
+- `ui/backfill_dialog.py`：补签时需选择 result（4级评分之一）
 
 ### 5.3 新增
 
@@ -249,7 +289,7 @@ CREATE TABLE review_logs (
 
 ### 5.4 删除
 
-- `ui/mastery_dialog.py`：不再需要单独的掌握确认对话框，一轮8次「记得」自动完成
+- `ui/mastery_dialog.py`：不再需要单独的掌握确认对话框，一轮8次「完全正确」自动完成
 
 ### 5.5 测试
 
@@ -274,49 +314,74 @@ class Scheduler:
             "next_review_date": today
         }
 
-    def process_review(self, item, today, result):
-        """处理用户的三选项反馈，返回新的调度状态"""
+    def process_review(self, item, today, result, is_retest=False):
+        """处理用户的4级评分反馈，返回新的调度状态。
+
+        is_retest: True 表示该条目今日非首次出现（重背评分）。
+                   重背时 mostly_correct 不再 +1，仅追加到队列末尾。
+        """
         round_intervals = self.ROUND2_INTERVALS if item["round"] == 2 else self.ROUND1_INTERVALS
+        current_correct = item["consecutive_correct"]
 
-        if result == "remember":
-            new_correct = item["consecutive_correct"] + 1
+        if result == "perfect":
+            # 完全正确：递增，正常间隔
+            new_correct = current_correct + 1
             new_strength = min(1.0, item["memory_strength"] + 0.05)
+            return self._build_result(item, today, round_intervals, new_correct, new_strength)
 
-            if new_correct >= len(round_intervals):
-                # 本轮完成，不再调度
-                if item["round"] == 1:
-                    new_status = "mastered"
-                else:
-                    new_status = "archived"
-                new_interval = round_intervals[-1]
-                next_date = ""  # 空字符串表示不再调度
+        elif result == "mostly_correct":
+            # 基本正确：间隔按完全正确递增，但需重背
+            if is_retest:
+                # 重背时不再递增，保持当前状态，仅追加到末尾
+                return self._build_result(item, today, round_intervals,
+                                         current_correct, item["memory_strength"])
             else:
-                new_status = "learning"
-                new_interval = round_intervals[new_correct - 1]
-                next_date = today + timedelta(days=new_interval)
+                new_correct = current_correct + 1
+                new_strength = min(1.0, item["memory_strength"] + 0.03)
+                return self._build_result(item, today, round_intervals, new_correct, new_strength,
+                                          requeue_today=True)
 
-            return {
-                "status": new_status, "round": item["round"],
-                "interval": new_interval, "consecutive_correct": new_correct,
-                "memory_strength": new_strength, "next_review_date": next_date
-            }
+        elif result == "partial":
+            # 部分正确：间隔回退2步，consecutive_correct 减2
+            new_correct = max(0, current_correct - 2)
+            new_strength = max(0.1, item["memory_strength"] * 0.8)
+            return self._build_result(item, today, round_intervals, new_correct, new_strength,
+                                      requeue_today=True)
 
-        elif result == "fuzzy":
-            new_interval = max(1, item["interval"] // 2)
-            new_strength = max(0.1, item["memory_strength"] * 0.9)
-            return {
-                "status": "learning", "round": item["round"],
-                "interval": new_interval, "consecutive_correct": item["consecutive_correct"],
-                "memory_strength": new_strength, "next_review_date": today + timedelta(days=new_interval)
-            }
-
-        elif result == "forget":
+        elif result == "wrong":
+            # 记错了：间隔重置为1，consecutive_correct 归零
             new_strength = max(0.1, item["memory_strength"] * 0.5)
             return {
                 "status": "learning", "round": item["round"],
                 "interval": 1, "consecutive_correct": 0,
-                "memory_strength": new_strength, "next_review_date": today + timedelta(days=1)
+                "memory_strength": new_strength,
+                "next_review_date": today + timedelta(days=1),
+                "requeue_today": True
             }
+
+    def _build_result(self, item, today, round_intervals, new_correct, new_strength,
+                      requeue_today=False):
+        """根据新的 consecutive_correct 构建结果。"""
+        if new_correct >= len(round_intervals):
+            # 本轮完成，不再调度
+            if item["round"] == 1:
+                new_status = "mastered"
+            else:
+                new_status = "archived"
+            new_interval = round_intervals[-1]
+            next_date = ""  # 空字符串表示不再调度
+            requeue_today = False  # 完成后不重背
+        else:
+            new_status = "learning"
+            new_interval = round_intervals[new_correct - 1] if new_correct > 0 else 1
+            next_date = today + timedelta(days=new_interval)
+
+        return {
+            "status": new_status, "round": item["round"],
+            "interval": new_interval, "consecutive_correct": new_correct,
+            "memory_strength": new_strength, "next_review_date": next_date,
+            "requeue_today": requeue_today
+        }
 
     def start_round2(self, items, today):
         """二轮巩固：批量重置条目为二轮状态"""
@@ -343,11 +408,13 @@ class Scheduler:
 
 - `schedule_new_item`：初始状态正确
 - `process_review` 各分支：
-  - remember 未达上限：interval/consecutive_correct 正确递增
-  - remember 达到一轮上限：status=mastered
-  - remember 达到二轮上限：status=archived
-  - fuzzy：interval 减半、consecutive_correct 不变、memory_strength 衰减
-  - forget：interval=1、consecutive_correct=0、memory_strength 大幅衰减
+  - perfect 未达上限：interval/consecutive_correct 正确递增，requeue_today=False
+  - perfect 达到一轮上限：status=mastered, next_review_date=""
+  - perfect 达到二轮上限：status=archived
+  - mostly_correct 首次：consecutive_correct +1, requeue_today=True
+  - mostly_correct 重背(is_retest=True)：consecutive_correct 不变, requeue_today=True
+  - partial：consecutive_correct 减2（最低0），interval 回退2步，requeue_today=True
+  - wrong：interval=1、consecutive_correct=0、memory_strength 大幅衰减，requeue_today=True
   - memory_strength 上下限（0.1 / 1.0）
 - `start_round2`：批量重置正确，memory_strength 保留
 
