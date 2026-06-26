@@ -1,6 +1,6 @@
 import customtkinter as ctk
 from tkinter import messagebox
-from datetime import date, datetime
+from datetime import date
 
 
 class AddItemDialog(ctk.CTkToplevel):
@@ -24,7 +24,7 @@ class AddItemDialog(ctk.CTkToplevel):
         self.date_entry = ctk.CTkEntry(date_frame, width=150, placeholder_text="YYYY-MM-DD")
         self.date_entry.insert(0, today_str)
         self.date_entry.pack(side="left")
-        ctk.CTkLabel(date_frame, text="（可改为过去日期，软件会自动推算当前进度）",
+        ctk.CTkLabel(date_frame, text="（可改为过去日期作为录入日期）",
                      text_color="gray", font=ctk.CTkFont(size=11)).pack(side="left", padx=10)
 
         # 分类选择
