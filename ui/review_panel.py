@@ -76,10 +76,27 @@ class ReviewPanel(ctk.CTkFrame):
                 else:
                     unscheduled.append({"item": item, "is_retest": False})
             self.queue = unscheduled + rescheduled
-            self.completed_count = 0
-            self.total_count = len(self.queue)
+            # 从数据库恢复今日已完成数（perfect 评分且不再 due 的条目）
+            # = 今日 perfect 评分总数 - 仍在 due 中的 perfect（重背后又 perfect 的情况极少，忽略）
+            today_perfect = self.db.get_perfect_count_in_range(today, today)
+            # 今日 due 中的 perfect 次数（重背后又 perfect 的条目，这些已在队列中）
+            due_perfect_in_logs = 0
+            if due_items:
+                due_ids = [i["id"] for i in due_items]
+                due_perfect_in_logs = self._count_perfect_in_logs(today, due_ids)
+            self.completed_count = today_perfect - due_perfect_in_logs
+            self.total_count = self.completed_count + len(self.queue)
             self._update_progress()
             self._render_current_card()
+
+    def _count_perfect_in_logs(self, today, item_ids):
+        """统计今日这些条目的 perfect 评分次数（用于避免重复计数）"""
+        today_str = today.isoformat() if hasattr(today, "isoformat") else today
+        placeholders = ",".join("?" * len(item_ids))
+        cursor = self.db.conn.execute(
+            f"SELECT COUNT(*) FROM review_logs WHERE review_date=? AND result='perfect' AND item_id IN ({placeholders})",
+            [today_str] + item_ids)
+        return cursor.fetchone()[0]
 
     def _update_progress(self):
         if self.total_count == 0:
