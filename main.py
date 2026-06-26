@@ -9,14 +9,19 @@ from ui.main_window import MainWindow
 
 APP_NAME = "艾宾浩斯背诵"
 
-def get_db_path() -> str:
-    """数据库路径：%APPDATA%/艾宾浩斯背诵/ebbinghaus.db
+def get_app_root() -> Path:
+    """软件根目录：打包后为 exe 所在目录，开发模式为项目根目录"""
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).parent
+    return Path(__file__).parent
 
-    与 exe 分离：无论 exe 放在哪里、重新打包多少次，数据库始终在此固定位置，
-    用户数据永不丢失。这也是 Windows 软件的标准做法（Chrome/VSCode/微信等同理）。
+def get_db_path() -> str:
+    """数据库路径：软件根目录下 data/ebbinghaus.db
+
+    与 exe 同放在软件根目录下，便于统一备份和管理。
+    重新打包/更新 exe 不会影响 data/ 文件夹里的数据。
     """
-    app_data = os.environ.get('APPDATA') or str(Path.home() / "AppData" / "Roaming")
-    data_dir = Path(app_data) / APP_NAME
+    data_dir = get_app_root() / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     return str(data_dir / "ebbinghaus.db")
 

@@ -12,7 +12,8 @@ from pathlib import Path
 
 APP_NAME = "艾宾浩斯背诵"
 PROJECT_DIR = Path(__file__).parent
-INSTALL_DIR = Path(os.environ["LOCALAPPDATA"]) / APP_NAME
+# exe 和数据库都放在项目文件夹里，便于统一管理
+INSTALL_DIR = PROJECT_DIR
 
 
 def get_desktop_dir() -> Path:
@@ -125,7 +126,7 @@ def main():
     print("\n" + "=" * 50, flush=True)
     print("  更新完成！", flush=True)
     print("=" * 50, flush=True)
-    db_path = Path(os.environ["APPDATA"]) / APP_NAME / "ebbinghaus.db"
+    db_path = INSTALL_DIR / "data" / "ebbinghaus.db"
     print(f"\n数据库位置：{db_path}", flush=True)
     print(f"软件位置：{dst_exe}", flush=True)
     print("\n双击桌面快捷方式即可启动最新版本。", flush=True)
