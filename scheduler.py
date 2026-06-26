@@ -22,7 +22,8 @@ class Scheduler:
 
         is_retest: True 表示该条目今日非首次出现（重背评分）。
         返回值含 requeue_today 字段：True 表示需追加到今日队列末尾。
-        next_review_date 为 None 表示不更新数据库。
+        next_review_date 为 None 表示不更新数据库（用于基本正确重背）。
+        next_review_date 为空字符串 "" 表示已完成轮次、不再调度。
         """
         round_intervals = self.ROUND2_INTERVALS if item["round"] == 2 else self.ROUND1_INTERVALS
         current_correct = item["consecutive_correct"]

@@ -114,3 +114,73 @@ def test_start_round2():
         assert r["interval"] == 0
         assert r["consecutive_correct"] == 0
         assert r["next_review_date"] == today
+
+def test_is_due_today_true_when_next_review_equals_today():
+    s = Scheduler()
+    today = date(2026, 6, 26)
+    item = {"next_review_date": today, "status": "learning"}
+    assert s.is_due_today(item, today) is True
+
+def test_is_due_today_true_when_next_review_before_today():
+    s = Scheduler()
+    today = date(2026, 6, 26)
+    item = {"next_review_date": today - timedelta(days=2), "status": "learning"}
+    assert s.is_due_today(item, today) is True
+
+def test_is_due_today_false_when_future():
+    s = Scheduler()
+    today = date(2026, 6, 26)
+    item = {"next_review_date": today + timedelta(days=1), "status": "learning"}
+    assert s.is_due_today(item, today) is False
+
+def test_is_due_today_false_when_mastered():
+    s = Scheduler()
+    today = date(2026, 6, 26)
+    item = {"next_review_date": today, "status": "mastered"}
+    assert s.is_due_today(item, today) is False
+
+def test_is_due_today_false_when_empty_string():
+    """已完成轮次的条目 next_review_date 为空字符串，不应到期"""
+    s = Scheduler()
+    today = date(2026, 6, 26)
+    item = {"next_review_date": "", "status": "learning"}
+    assert s.is_due_today(item, today) is False
+
+def test_is_due_today_handles_iso_string():
+    """数据库存储为 TEXT，is_due_today 应能解析 ISO 字符串"""
+    s = Scheduler()
+    today = date(2026, 6, 26)
+    item = {"next_review_date": "2026-06-26", "status": "learning"}
+    assert s.is_due_today(item, today) is True
+
+def test_stage_description_round1():
+    s = Scheduler()
+    assert s.stage_description(0, 1) == "第1次背诵"
+    assert s.stage_description(7, 1) == "第8次背诵"
+
+def test_stage_description_round2():
+    s = Scheduler()
+    assert s.stage_description(0, 2) == "第1次背诵（二轮）"
+    assert s.stage_description(2, 2) == "第3次背诵（二轮）"
+
+def test_process_review_mostly_correct_completes_round1():
+    """基本正确首次评分达到一轮上限应进入 mastered，且不重背"""
+    s = Scheduler()
+    today = date(2026, 6, 26)
+    item = {"round": 1, "interval": 21, "consecutive_correct": 7, "status": "learning"}
+    result = s.process_review(item, today, "mostly_correct", is_retest=False)
+    assert result["consecutive_correct"] == 8
+    assert result["status"] == "mastered"
+    assert result["next_review_date"] == ""
+    assert result["requeue_today"] is False  # 完成后强制不重背
+
+def test_process_review_partial_round2():
+    """二轮的 partial 应使用 ROUND2_INTERVALS 回退"""
+    s = Scheduler()
+    today = date(2026, 6, 26)
+    item = {"round": 2, "interval": 7, "consecutive_correct": 2, "status": "learning"}
+    result = s.process_review(item, today, "partial", is_retest=False)
+    assert result["consecutive_correct"] == 0  # 2-2=0
+    assert result["interval"] == 1  # new_correct=0 时用默认1
+    assert result["next_review_date"] == today + timedelta(days=1)
+    assert result["requeue_today"] is True
