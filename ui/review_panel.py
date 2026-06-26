@@ -64,12 +64,18 @@ class ReviewPanel(ctk.CTkFrame):
             self._render_current_card()
         else:
             # 队列为空：完整重建
+            # 循环型队列：未评分条目优先，已评分的重背条目排后。
+            # 这样关闭软件重开后，会从第一个未处理的条目开始，而不是从已评过分的重背条目重新开始。
             for widget in self.card_frame.winfo_children():
                 widget.destroy()
-            self.queue = []
+            unscheduled = []
+            rescheduled = []
             for item in due_items:
-                is_retest = item["id"] in reviewed_ids
-                self.queue.append({"item": item, "is_retest": is_retest})
+                if item["id"] in reviewed_ids:
+                    rescheduled.append({"item": item, "is_retest": True})
+                else:
+                    unscheduled.append({"item": item, "is_retest": False})
+            self.queue = unscheduled + rescheduled
             self.completed_count = 0
             self.total_count = len(self.queue)
             self._update_progress()
