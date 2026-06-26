@@ -2,7 +2,7 @@
 update.py - 一键更新脚本
 用法：python update.py
 功能：运行测试 → 打包exe → 关闭旧进程 → 安装到固定目录 → 刷新桌面快捷方式 → 清理
-数据库在 %APPDATA%/艾宾浩斯背诵/，与exe分离，更新不丢数据
+数据库在项目文件夹 data/ 下，与exe分离，更新不丢数据
 """
 import os
 import sys
@@ -10,7 +10,7 @@ import subprocess
 import shutil
 from pathlib import Path
 
-APP_NAME = "艾宾浩斯背诵"
+APP_NAME = "一点不背"
 PROJECT_DIR = Path(__file__).parent
 # exe 和数据库都放在项目文件夹里，便于统一管理
 INSTALL_DIR = PROJECT_DIR
