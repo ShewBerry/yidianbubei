@@ -7,16 +7,17 @@ from database import Database
 from scheduler import Scheduler
 from ui.main_window import MainWindow
 
+APP_NAME = "艾宾浩斯背诵"
+
 def get_db_path() -> str:
-    """数据库路径：项目根目录下 data/ebbinghaus.db"""
-    if getattr(sys, 'frozen', False):
-        # 打包后的 exe 模式：放在 exe 同级目录
-        base = Path(sys.executable).parent
-    else:
-        # 开发模式：项目根目录
-        base = Path(__file__).parent
-    data_dir = base / "data"
-    data_dir.mkdir(exist_ok=True)
+    """数据库路径：%APPDATA%/艾宾浩斯背诵/ebbinghaus.db
+
+    与 exe 分离：无论 exe 放在哪里、重新打包多少次，数据库始终在此固定位置，
+    用户数据永不丢失。这也是 Windows 软件的标准做法（Chrome/VSCode/微信等同理）。
+    """
+    app_data = os.environ.get('APPDATA') or str(Path.home() / "AppData" / "Roaming")
+    data_dir = Path(app_data) / APP_NAME
+    data_dir.mkdir(parents=True, exist_ok=True)
     return str(data_dir / "ebbinghaus.db")
 
 def main():
