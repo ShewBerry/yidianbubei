@@ -75,8 +75,8 @@ def test_process_review_partial_normal():
     today = date(2026, 6, 26)
     item = {"round": 1, "interval": 13, "consecutive_correct": 6, "status": "learning"}
     result = s.process_review(item, today, "partial", is_retest=False)
-    assert result["consecutive_correct"] == 4  # 6-2
-    assert result["interval"] == 5  # ROUND1_INTERVALS[3]
+    assert result["consecutive_correct"] == 5  # 6-1
+    assert result["interval"] == 8  # ROUND1_INTERVALS[4]
     assert result["next_review_date"] == today  # 重背时保持今天，关闭应用后不丢失
     assert result["requeue_today"] is True
 
@@ -180,8 +180,8 @@ def test_process_review_partial_round2():
     today = date(2026, 6, 26)
     item = {"round": 2, "interval": 7, "consecutive_correct": 2, "status": "learning"}
     result = s.process_review(item, today, "partial", is_retest=False)
-    assert result["consecutive_correct"] == 0  # 2-2=0
-    assert result["interval"] == 1  # new_correct=0 时用默认1
+    assert result["consecutive_correct"] == 1  # 2-1=1
+    assert result["interval"] == 3  # ROUND2_INTERVALS[0]
     assert result["next_review_date"] == today  # 重背时保持今天，关闭应用后不丢失
     assert result["requeue_today"] is True
 
@@ -204,9 +204,9 @@ def test_process_review_backfill_partial():
     review_date = date(2026, 6, 20)
     item = {"round": 1, "interval": 13, "consecutive_correct": 6, "status": "learning"}
     result = s.process_review(item, review_date, "partial", is_retest=False, is_backfill=True)
-    assert result["consecutive_correct"] == 4
-    assert result["interval"] == 5
-    assert result["next_review_date"] == review_date + timedelta(days=5)
+    assert result["consecutive_correct"] == 5  # 6-1
+    assert result["interval"] == 8  # ROUND1_INTERVALS[4]
+    assert result["next_review_date"] == review_date + timedelta(days=8)
     assert result["requeue_today"] is False
 
 

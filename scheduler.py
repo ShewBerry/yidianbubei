@@ -50,7 +50,7 @@ class Scheduler:
                                           requeue_today=True, is_backfill=is_backfill)
 
         elif result == "partial":
-            new_correct = max(0, current_correct - 2)
+            new_correct = max(0, current_correct - 1)
             return self._build_result(item["round"], round_intervals, new_correct, today,
                                       requeue_today=True, is_backfill=is_backfill)
 
