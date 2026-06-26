@@ -1,5 +1,6 @@
 import customtkinter as ctk
 from tkinter import ttk, messagebox, simpledialog
+from datetime import date
 
 
 class CategoryPanel(ctk.CTkFrame):
@@ -20,6 +21,8 @@ class CategoryPanel(ctk.CTkFrame):
         ctk.CTkButton(toolbar, text="🗑 删除", width=80, fg_color="#e74c3c", hover_color="#c0392b",
                       command=self._delete_category).pack(side="left", padx=5)
         ctk.CTkButton(toolbar, text="⟲ 刷新", width=80, command=self.refresh).pack(side="left", padx=5)
+        ctk.CTkButton(toolbar, text="🔁 二轮巩固", width=110, fg_color="#9b59b6", hover_color="#8e44ad",
+                      command=self._start_round2).pack(side="left", padx=5)
 
         # 树形视图容器
         tree_container = ctk.CTkFrame(self)
@@ -121,4 +124,43 @@ class CategoryPanel(ctk.CTkFrame):
                                     parent=self):
             return
         self.db.delete_category(cat_id)
+        self.refresh()
+
+    def _start_round2(self):
+        """二轮巩固：将选中分类下全部mastered的条目重置为二轮状态"""
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showwarning("提示", "请先选中要启动二轮巩固的分类", parent=self)
+            return
+        values = self.tree.item(selection[0], "values")
+        if not values or values[0] in (None, "None", ""):
+            messagebox.showwarning("提示", "请在具体分类上启动二轮巩固（不支持“全部条目”）", parent=self)
+            return
+        cat_id = int(values[0])
+
+        # 获取该分类及所有子孙分类下的条目
+        items = self.db.get_items_by_category(cat_id, include_descendants=True)
+        if not items:
+            messagebox.showinfo("提示", "该分类下没有条目", parent=self)
+            return
+
+        # 检查是否全部 mastered（一轮完成）
+        not_mastered = [i for i in items if i["status"] != "mastered"]
+        if not_mastered:
+            messagebox.showwarning("提示",
+                f"还有 {len(not_mastered)} 条目未完成一轮，无法开始二轮", parent=self)
+            return
+
+        # 全部完成，弹确认框
+        name = self.tree.item(selection[0], "text").replace("📁 ", "")
+        if not messagebox.askyesno("确认二轮巩固",
+            f"确认对分类“{name}”下 {len(items)} 条目启动二轮巩固？\n\n"
+            f"这些条目将重置为二轮状态，间隔为 3/7/14 天。",
+            parent=self):
+            return
+
+        # 批量重置
+        item_ids = [i["id"] for i in items]
+        self.db.batch_update_round2(item_ids, date.today())
+        messagebox.showinfo("完成", f"已对 {len(items)} 条目启动二轮巩固", parent=self)
         self.refresh()
