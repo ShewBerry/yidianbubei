@@ -10,6 +10,8 @@ from ui.theme import (
     COLOR_WRONG, COLOR_WRONG_HOVER,
     COLOR_TEXT_SECONDARY, PRIMARY,
 )
+from ui.markable_textbox import MarkableTextbox
+from ui.notes_box import NotesBox
 
 
 class ReviewPanel(ctk.CTkFrame):
@@ -131,12 +133,16 @@ class ReviewPanel(ctk.CTkFrame):
                      font=body_font()).pack(side="right")
 
         if current.get("show_content"):
-            content_box = ctk.CTkTextbox(card, height=200, font=body_font())
-            content_box.pack(fill="x", padx=20, pady=10)
-            content_box.insert("1.0", item["content"])
-            content_box.configure(state="disabled")
+            # 可标记+可缩放内容框
+            self.markable_box = MarkableTextbox(card, self.db, item, read_only_marks=False)
+            self.markable_box.pack(fill="both", expand=True, padx=20, pady=5)
 
-            # 评分按钮：加大高度、加emoji图标、加描述文案
+            # 条目笔记
+            self.notes_box = NotesBox(card, self.db, item["id"],
+                                       current_notes=item.get("notes", ""), height=70)
+            self.notes_box.pack(fill="x", padx=20, pady=(5, 5))
+
+            # 评分按钮
             btn_frame = ctk.CTkFrame(card, fg_color="transparent")
             btn_frame.pack(fill="x", padx=20, pady=(5, 15))
 
@@ -193,6 +199,13 @@ class ReviewPanel(ctk.CTkFrame):
         current = self.queue[0]
         item = current["item"]
         today = date.today()
+
+        # 评分前先保存笔记（NotesBox 失焦保存可能未触发）
+        if hasattr(self, "notes_box"):
+            try:
+                self.notes_box._on_focus_out()
+            except Exception:
+                pass
 
         # partial 需查询今日已回退次数以应用上限
         today_partial_count = 0
