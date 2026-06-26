@@ -1,6 +1,9 @@
 # ui/stats_panel.py
 import customtkinter as ctk
 from datetime import date, timedelta
+from ui.theme import (title_font, heading_font, body_font, small_font,
+                      COLOR_NEUTRAL, COLOR_NEUTRAL_HOVER, COLOR_TEXT_SECONDARY,
+                      COLOR_WRONG, COLOR_PERFECT)
 
 
 class StatsPanel(ctk.CTkFrame):
@@ -10,12 +13,13 @@ class StatsPanel(ctk.CTkFrame):
         self.db = db
 
         ctk.CTkLabel(self, text="背诵统计",
-                     font=ctk.CTkFont(size=20, weight="bold")).pack(pady=(15, 10))
+                     font=title_font()).pack(pady=(15, 10))
 
         self.scroll = ctk.CTkScrollableFrame(self, label_text="")
         self.scroll.pack(fill="both", expand=True, padx=15, pady=(0, 15))
 
-        ctk.CTkButton(self, text="⟲ 刷新", width=80,
+        ctk.CTkButton(self, text="⟲ 刷新", width=80, fg_color=COLOR_NEUTRAL,
+                      hover_color=COLOR_NEUTRAL_HOVER, font=body_font(),
                       command=self.refresh).pack(pady=(0, 10))
 
         self.refresh()
@@ -46,7 +50,7 @@ class StatsPanel(ctk.CTkFrame):
         total = completed + len(due_items)
 
         ctk.CTkLabel(frame, text=f"已完成 {completed} / 共 {total} 条",
-                     font=ctk.CTkFont(size=13)).pack(anchor="w", padx=10, pady=(0, 8))
+                     font=body_font()).pack(anchor="w", padx=10, pady=(0, 8))
 
     def _render_weekly_stats(self, today):
         """本周完成：N 条完全正确"""
@@ -54,7 +58,7 @@ class StatsPanel(ctk.CTkFrame):
         frame.pack(fill="x", pady=5, padx=5)
 
         ctk.CTkLabel(frame, text="本周完成",
-                     font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", padx=10, pady=(8, 3))
+                     font=heading_font()).pack(anchor="w", padx=10, pady=(8, 3))
 
         # 本周 = 从周一开始
         weekday = today.weekday()  # 0=周一
