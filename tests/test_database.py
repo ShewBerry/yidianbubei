@@ -1,6 +1,6 @@
 # tests/test_database.py
 import pytest
-from datetime import date
+from datetime import date, timedelta
 from database import Database
 
 
@@ -77,7 +77,7 @@ def test_get_mastered_items(db):
 
 def test_bring_overdue_to_today(db):
     today = date(2026, 6, 26)
-    yesterday = today - __import__("datetime").timedelta(days=1)
+    yesterday = today - timedelta(days=1)
     db.create_item("过期", "内容", yesterday, yesterday, status="learning",
                    round=1, interval=1, consecutive_correct=1)
     db.bring_overdue_to_today(today)
@@ -118,3 +118,76 @@ def test_category_crud_unchanged(db):
     children = db.get_category_children(cat_id)
     assert len(children) == 1
     assert children[0]["name"] == "单词"
+
+
+def test_update_item_allowed_fields(db):
+    """update_item 应更新白名单内字段"""
+    today = date(2026, 6, 26)
+    item_id = db.create_item("测试", "内容", today, today, status="learning",
+                             round=1, interval=0, consecutive_correct=0)
+    db.update_item(item_id, status="mastered", round=2, interval=14,
+                   consecutive_correct=3, next_review_date="")
+    item = db.get_item(item_id)
+    assert item["status"] == "mastered"
+    assert item["round"] == 2
+    assert item["interval"] == 14
+    assert item["consecutive_correct"] == 3
+    assert item["next_review_date"] == ""
+
+
+def test_update_item_ignores_non_allowed_fields(db):
+    """update_item 应忽略白名单外的字段（如 id），不污染主键"""
+    today = date(2026, 6, 26)
+    item_id = db.create_item("测试", "内容", today, today, status="learning",
+                             round=1, interval=0, consecutive_correct=0)
+    # 传入 id 和不存在的字段，都应被忽略
+    db.update_item(item_id, id=999, foo="bar", title="新标题")
+    item = db.get_item(item_id)
+    assert item["id"] == item_id  # 主键未被篡改
+    assert item["title"] == "新标题"  # 白名单内字段已更新
+
+
+def test_update_item_converts_date_object_to_iso(db):
+    """update_item 接收 date 对象时应转为 isoformat 字符串存储"""
+    today = date(2026, 6, 26)
+    item_id = db.create_item("测试", "内容", today, today, status="learning",
+                             round=1, interval=0, consecutive_correct=0)
+    future = today + timedelta(days=5)
+    db.update_item(item_id, next_review_date=future)
+    item = db.get_item(item_id)
+    assert item["next_review_date"] == future.isoformat()
+
+
+def test_get_mastered_items_includes_archived(db):
+    """get_mastered_items 应同时返回 mastered 和 archived 状态"""
+    today = date(2026, 6, 26)
+    db.create_item("已掌握", "内容", today, "", status="mastered",
+                   round=1, interval=34, consecutive_correct=8)
+    db.create_item("已归档", "内容", today, "", status="archived",
+                   round=2, interval=14, consecutive_correct=3)
+    db.create_item("学习中", "内容", today, today, status="learning",
+                   round=1, interval=0, consecutive_correct=0)
+    mastered = db.get_mastered_items()
+    titles = {m["title"] for m in mastered}
+    assert "已掌握" in titles
+    assert "已归档" in titles
+    assert "学习中" not in titles
+    assert len(mastered) == 2
+
+
+def test_get_today_reviewed_item_ids(db):
+    """get_today_reviewed_item_ids 返回今日有 review_logs 的 item_id 集合"""
+    today = date(2026, 6, 26)
+    yesterday = today - timedelta(days=1)
+    id1 = db.create_item("条目1", "内容", today, today, status="learning",
+                         round=1, interval=0, consecutive_correct=0)
+    id2 = db.create_item("条目2", "内容", today, today, status="learning",
+                         round=1, interval=0, consecutive_correct=0)
+    # id1 今日有日志，id2 昨日有日志
+    db.log_review(id1, today, 1, "perfect", 1)
+    db.log_review(id2, yesterday, 1, "perfect", 1)
+    reviewed_today = db.get_today_reviewed_item_ids(today)
+    assert reviewed_today == {id1}
+    # 昨日的查询应返回 id2
+    reviewed_yesterday = db.get_today_reviewed_item_ids(yesterday)
+    assert reviewed_yesterday == {id2}
