@@ -124,8 +124,9 @@ class AllItemsPanel(ctk.CTkFrame):
         BackfillReviewDialog(self, item, self._handle_backfill)
 
     def _handle_backfill(self, item, review_date, result):
-        """补签：用历史日期和评分结果重算状态"""
-        sched_result = self.scheduler.process_review(item, review_date, result, is_retest=False)
+        """补签：用历史日期和评分结果重算状态，不重背，按补签日+间隔计算"""
+        sched_result = self.scheduler.process_review(item, review_date, result,
+                                                      is_retest=False, is_backfill=True)
         update_fields = {
             "status": sched_result["status"],
             "round": sched_result["round"],

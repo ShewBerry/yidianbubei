@@ -17,20 +17,23 @@ class Scheduler:
         }
 
     def process_review(self, item: dict, today: date, result: str,
-                       is_retest: bool = False) -> dict:
+                       is_retest: bool = False, is_backfill: bool = False) -> dict:
         """处理用户的4级评分反馈，返回新的调度状态。
 
         is_retest: True 表示该条目今日非首次出现（重背评分）。
+        is_backfill: True 表示补签历史日期。补签时不重背，next_review_date 按补签日+间隔计算。
         返回值含 requeue_today 字段：True 表示需追加到今日队列末尾。
         next_review_date 为 None 表示不更新数据库（用于基本正确重背）。
         next_review_date 为空字符串 "" 表示已完成轮次、不再调度。
+        next_review_date 为 today 表示当日需重背（关闭应用后仍可恢复，不丢失）。
         """
         round_intervals = self.ROUND2_INTERVALS if item["round"] == 2 else self.ROUND1_INTERVALS
         current_correct = item["consecutive_correct"]
 
         if result == "perfect":
             new_correct = current_correct + 1
-            return self._build_result(item["round"], round_intervals, new_correct, today)
+            return self._build_result(item["round"], round_intervals, new_correct, today,
+                                      is_backfill=is_backfill)
 
         elif result == "mostly_correct":
             if is_retest:
@@ -44,26 +47,39 @@ class Scheduler:
             else:
                 new_correct = current_correct + 1
                 return self._build_result(item["round"], round_intervals, new_correct, today,
-                                          requeue_today=True)
+                                          requeue_today=True, is_backfill=is_backfill)
 
         elif result == "partial":
             new_correct = max(0, current_correct - 2)
             return self._build_result(item["round"], round_intervals, new_correct, today,
-                                      requeue_today=True)
+                                      requeue_today=True, is_backfill=is_backfill)
 
         elif result == "wrong":
+            if is_backfill:
+                return {
+                    "status": "learning", "round": item["round"],
+                    "interval": 1, "consecutive_correct": 0,
+                    "next_review_date": today + timedelta(days=1),
+                    "requeue_today": False
+                }
             return {
                 "status": "learning", "round": item["round"],
                 "interval": 1, "consecutive_correct": 0,
-                "next_review_date": today + timedelta(days=1),
+                "next_review_date": today,
                 "requeue_today": True
             }
 
         raise ValueError(f"未知的评分结果: {result}")
 
     def _build_result(self, round_num: int, round_intervals: list, new_correct: int,
-                      today: date, requeue_today: bool = False) -> dict:
-        """根据新的 consecutive_correct 构建结果。"""
+                      today: date, requeue_today: bool = False,
+                      is_backfill: bool = False) -> dict:
+        """根据新的 consecutive_correct 构建结果。
+
+        补签(is_backfill=True)时：requeue_today 强制为 False，next_review_date = today + interval。
+        非补签且 requeue_today=True 时：next_review_date = today（保持今天，关闭应用后不丢失重背条目）。
+        非补签且 requeue_today=False 时（完全正确或完成轮次）：next_review_date = today + interval。
+        """
         if new_correct >= len(round_intervals):
             new_status = "mastered" if round_num == 1 else "archived"
             new_interval = round_intervals[-1]
@@ -72,7 +88,13 @@ class Scheduler:
         else:
             new_status = "learning"
             new_interval = round_intervals[new_correct - 1] if new_correct > 0 else 1
-            next_date = today + timedelta(days=new_interval)
+            if is_backfill:
+                next_date = today + timedelta(days=new_interval)
+                requeue_today = False
+            elif requeue_today:
+                next_date = today
+            else:
+                next_date = today + timedelta(days=new_interval)
 
         return {
             "status": new_status, "round": round_num,

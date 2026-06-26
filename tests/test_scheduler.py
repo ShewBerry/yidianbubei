@@ -57,7 +57,7 @@ def test_process_review_mostly_correct_first_time():
     result = s.process_review(item, today, "mostly_correct", is_retest=False)
     assert result["consecutive_correct"] == 1
     assert result["interval"] == 1
-    assert result["next_review_date"] == today + timedelta(days=1)
+    assert result["next_review_date"] == today  # 重背时保持今天，关闭应用后不丢失
     assert result["requeue_today"] is True
 
 def test_process_review_mostly_correct_retest():
@@ -77,7 +77,7 @@ def test_process_review_partial_normal():
     result = s.process_review(item, today, "partial", is_retest=False)
     assert result["consecutive_correct"] == 4  # 6-2
     assert result["interval"] == 5  # ROUND1_INTERVALS[3]
-    assert result["next_review_date"] == today + timedelta(days=5)
+    assert result["next_review_date"] == today  # 重背时保持今天，关闭应用后不丢失
     assert result["requeue_today"] is True
 
 def test_process_review_partial_at_zero():
@@ -87,7 +87,7 @@ def test_process_review_partial_at_zero():
     result = s.process_review(item, today, "partial", is_retest=False)
     assert result["consecutive_correct"] == 0
     assert result["interval"] == 1
-    assert result["next_review_date"] == today + timedelta(days=1)
+    assert result["next_review_date"] == today  # 重背时保持今天，关闭应用后不丢失
     assert result["requeue_today"] is True
 
 def test_process_review_wrong():
@@ -97,7 +97,7 @@ def test_process_review_wrong():
     result = s.process_review(item, today, "wrong", is_retest=False)
     assert result["consecutive_correct"] == 0
     assert result["interval"] == 1
-    assert result["next_review_date"] == today + timedelta(days=1)
+    assert result["next_review_date"] == today  # 重背时保持今天，关闭应用后不丢失
     assert result["requeue_today"] is True
 
 def test_start_round2():
@@ -182,5 +182,41 @@ def test_process_review_partial_round2():
     result = s.process_review(item, today, "partial", is_retest=False)
     assert result["consecutive_correct"] == 0  # 2-2=0
     assert result["interval"] == 1  # new_correct=0 时用默认1
-    assert result["next_review_date"] == today + timedelta(days=1)
+    assert result["next_review_date"] == today  # 重背时保持今天，关闭应用后不丢失
     assert result["requeue_today"] is True
+
+
+def test_process_review_backfill_mostly_correct():
+    """补签基本正确：不重背，next_review_date = 补签日 + interval"""
+    s = Scheduler()
+    review_date = date(2026, 6, 20)  # 历史日期
+    item = {"round": 1, "interval": 0, "consecutive_correct": 0, "status": "learning"}
+    result = s.process_review(item, review_date, "mostly_correct", is_retest=False, is_backfill=True)
+    assert result["consecutive_correct"] == 1
+    assert result["interval"] == 1
+    assert result["next_review_date"] == review_date + timedelta(days=1)
+    assert result["requeue_today"] is False
+
+
+def test_process_review_backfill_partial():
+    """补签部分正确：不重背，next_review_date = 补签日 + interval"""
+    s = Scheduler()
+    review_date = date(2026, 6, 20)
+    item = {"round": 1, "interval": 13, "consecutive_correct": 6, "status": "learning"}
+    result = s.process_review(item, review_date, "partial", is_retest=False, is_backfill=True)
+    assert result["consecutive_correct"] == 4
+    assert result["interval"] == 5
+    assert result["next_review_date"] == review_date + timedelta(days=5)
+    assert result["requeue_today"] is False
+
+
+def test_process_review_backfill_wrong():
+    """补签记错了：不重背，next_review_date = 补签日 + 1"""
+    s = Scheduler()
+    review_date = date(2026, 6, 20)
+    item = {"round": 1, "interval": 21, "consecutive_correct": 7, "status": "learning"}
+    result = s.process_review(item, review_date, "wrong", is_retest=False, is_backfill=True)
+    assert result["consecutive_correct"] == 0
+    assert result["interval"] == 1
+    assert result["next_review_date"] == review_date + timedelta(days=1)
+    assert result["requeue_today"] is False
