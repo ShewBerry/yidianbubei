@@ -1,21 +1,22 @@
+# ui/list_panels.py
 import customtkinter as ctk
 from datetime import date
 from scheduler import Scheduler
 
 
 class AllItemsPanel(ctk.CTkFrame):
-    """全部条目面板：展示所有学习中/待确认的条目，支持按分类过滤"""
+    """全部条目面板：展示所有学习中的条目"""
     def __init__(self, parent, db, scheduler: Scheduler):
         super().__init__(parent)
         self.db = db
         self.scheduler = scheduler
         self.expanded_item_id = None
-        self.filter_category_id = None  # None 表示全部
+        self.filter_category_id = None
 
         header_frame = ctk.CTkFrame(self, fg_color="transparent")
         header_frame.pack(fill="x", padx=15, pady=(15, 5))
-        ctk.CTkLabel(header_frame, text="全部条目", font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
-
+        ctk.CTkLabel(header_frame, text="全部条目",
+                     font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
         self.filter_label = ctk.CTkLabel(header_frame, text="（全部）", text_color="gray")
         self.filter_label.pack(side="left", padx=10)
 
@@ -24,7 +25,6 @@ class AllItemsPanel(ctk.CTkFrame):
         self.refresh()
 
     def set_category_filter(self, category_id):
-        """设置分类过滤；None=全部，'uncategorized'=未分类，整数=指定分类（含子孙）"""
         self.filter_category_id = category_id
         self.expanded_item_id = None
         if category_id is None:
@@ -38,15 +38,13 @@ class AllItemsPanel(ctk.CTkFrame):
         self.refresh()
 
     def _get_items(self):
-        """根据过滤条件获取条目列表"""
         if self.filter_category_id is None:
             return self.db.get_active_items()
         elif self.filter_category_id == "uncategorized":
-            all_active = self.db.get_active_items()
-            return [i for i in all_active if i["category_id"] is None]
+            return [i for i in self.db.get_active_items() if i["category_id"] is None]
         else:
             items = self.db.get_items_by_category(self.filter_category_id, include_descendants=True)
-            return [i for i in items if i["status"] in ("learning", "pending_mastery")]
+            return [i for i in items if i["status"] == "learning"]
 
     def refresh(self):
         for widget in self.scroll_frame.winfo_children():
@@ -64,21 +62,24 @@ class AllItemsPanel(ctk.CTkFrame):
 
         header = ctk.CTkFrame(card, fg_color="transparent")
         header.pack(fill="x", padx=10, pady=(8, 3))
-
-        title_text = f"《{item['title']}》"
-        ctk.CTkLabel(header, text=title_text,
+        ctk.CTkLabel(header, text=f"《{item['title']}》",
                      font=ctk.CTkFont(size=15, weight="bold")).pack(side="left")
 
         next_review = item["next_review_date"]
-        if isinstance(next_review, str):
-            next_review = date.fromisoformat(next_review)
-        today = date.today()
-        if item["status"] == "pending_mastery":
-            status_text = "待确认掌握"
-        elif next_review <= today:
-            status_text = "今日待背诵"
+        if next_review and next_review != "":
+            if isinstance(next_review, str):
+                from datetime import date as date_cls
+                try:
+                    next_review = date_cls.fromisoformat(next_review)
+                except ValueError:
+                    next_review = None
+            today = date.today()
+            if next_review and next_review <= today:
+                status_text = "今日待背诵"
+            else:
+                status_text = f"下次：{item['next_review_date']}"
         else:
-            status_text = f"下次背诵：{next_review.isoformat()}"
+            status_text = "—"
         ctk.CTkLabel(header, text=status_text, text_color="gray").pack(side="right")
 
         if self.expanded_item_id == item["id"]:
@@ -94,9 +95,8 @@ class AllItemsPanel(ctk.CTkFrame):
                           width=70, command=lambda: self._show_history(item)).pack(side="right", padx=(0, 5))
             ctk.CTkButton(btn_frame, text="编辑", fg_color="#7f8c8d", hover_color="#95a5a6",
                           width=70, command=lambda: self._edit_item(item)).pack(side="right", padx=(0, 5))
-            if item["status"] != "pending_mastery":
-                ctk.CTkButton(btn_frame, text="补签", fg_color="#f39c12", hover_color="#d68910",
-                              width=70, command=lambda: self._backfill_review(item)).pack(side="right", padx=(0, 5))
+            ctk.CTkButton(btn_frame, text="补签", fg_color="#f39c12", hover_color="#d68910",
+                          width=70, command=lambda: self._backfill_review(item)).pack(side="right", padx=(0, 5))
         else:
             ctk.CTkButton(card, text="展开", width=80, fg_color="gray",
                           command=lambda: self._expand(item["id"])).pack(padx=10, pady=(0, 8), anchor="e")
@@ -123,22 +123,25 @@ class AllItemsPanel(ctk.CTkFrame):
         from ui.backfill_dialog import BackfillReviewDialog
         BackfillReviewDialog(self, item, self._handle_backfill)
 
-    def _handle_backfill(self, item, review_date):
-        result = self.scheduler.mark_reviewed(item, review_date)
-        self.db.update_item(
-            item["id"],
-            status=result["status"],
-            current_stage=result["current_stage"],
-            cycle_type=result["cycle_type"],
-            cycle_start_date=result["cycle_start_date"],
-            next_review_date=result["next_review_date"]
-        )
-        self.db.log_review(item["id"], review_date, item["current_stage"], "backfilled")
+    def _handle_backfill(self, item, review_date, result):
+        """补签：用历史日期和评分结果重算状态"""
+        sched_result = self.scheduler.process_review(item, review_date, result, is_retest=False)
+        update_fields = {
+            "status": sched_result["status"],
+            "round": sched_result["round"],
+            "interval": sched_result["interval"],
+            "consecutive_correct": sched_result["consecutive_correct"],
+        }
+        if sched_result["next_review_date"] is not None:
+            update_fields["next_review_date"] = sched_result["next_review_date"]
+        self.db.update_item(item["id"], **update_fields)
+        self.db.log_review(item["id"], review_date, sched_result["round"], result,
+                           sched_result["interval"])
         self.refresh()
 
 
 class MasteredPanel(ctk.CTkFrame):
-    """已掌握面板：展示归档条目，支持按分类过滤"""
+    """已掌握面板：展示已掌握和已归档条目"""
     def __init__(self, parent, db):
         super().__init__(parent)
         self.db = db
@@ -147,7 +150,8 @@ class MasteredPanel(ctk.CTkFrame):
 
         header_frame = ctk.CTkFrame(self, fg_color="transparent")
         header_frame.pack(fill="x", padx=15, pady=(15, 5))
-        ctk.CTkLabel(header_frame, text="已掌握", font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
+        ctk.CTkLabel(header_frame, text="已掌握",
+                     font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
         self.filter_label = ctk.CTkLabel(header_frame, text="（全部）", text_color="gray")
         self.filter_label.pack(side="left", padx=10)
 
@@ -175,7 +179,7 @@ class MasteredPanel(ctk.CTkFrame):
             return [i for i in self.db.get_mastered_items() if i["category_id"] is None]
         else:
             items = self.db.get_items_by_category(self.filter_category_id, include_descendants=True)
-            return [i for i in items if i["status"] == "mastered"]
+            return [i for i in items if i["status"] in ("mastered", "archived")]
 
     def refresh(self):
         for widget in self.scroll_frame.winfo_children():
@@ -193,10 +197,10 @@ class MasteredPanel(ctk.CTkFrame):
 
         header = ctk.CTkFrame(card, fg_color="transparent")
         header.pack(fill="x", padx=10, pady=(8, 3))
-        title_text = f"《{item['title']}》"
-        ctk.CTkLabel(header, text=title_text,
+        ctk.CTkLabel(header, text=f"《{item['title']}》",
                      font=ctk.CTkFont(size=15, weight="bold")).pack(side="left")
-        ctk.CTkLabel(header, text=f"创建于 {item['created_date']}", text_color="gray").pack(side="right")
+        status_text = "已掌握(一轮)" if item["status"] == "mastered" else "已归档(二轮)"
+        ctk.CTkLabel(header, text=status_text, text_color="gray").pack(side="right")
 
         if self.expanded_item_id == item["id"]:
             content_box = ctk.CTkTextbox(card, height=120)
