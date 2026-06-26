@@ -1,119 +1,105 @@
+# scheduler.py
 from datetime import date, timedelta
 
+
 class Scheduler:
-    # 艾宾浩斯遗忘曲线：录入当天为第0天（第1次背诵）
-    # 各次背诵日为距录入天的累计天数：0, 1, 2, 4, 7, 15, 30 天
-    # 共7次背诵，第7次完成后进入待确认掌握
-    FULL_CYCLE = [0, 1, 2, 4, 7, 15, 30]  # 各次背诵的累计天数（距开始日）
-    SHORT_CYCLE = [0, 1, 3, 7]  # 短周期：共4次背诵
+    ROUND1_INTERVALS = [1, 2, 3, 5, 8, 13, 21, 34]
+    ROUND2_INTERVALS = [3, 7, 14]
 
-    def schedule_new_item(self, today: date, start_date: date = None) -> dict:
-        """新建条目的初始排程。录入当天即第1次背诵日。
-        - start_date 为 None 或等于 today：第1次背诵就在今天（current_stage=1）
-        - start_date 早于 today：按艾宾浩斯曲线反推当前应处的阶段和下次背诵日期
-        """
-        if start_date is None:
-            start_date = today
-        return self.backfill_schedule(start_date, today)
-
-    def backfill_schedule(self, start_date: date, today: date) -> dict:
-        """根据开始日期和今天日期，推算当前应处的阶段和下次背诵日期。
-
-        规则（艾宾浩斯遗忘曲线，累计天数）：
-        - 第N次背诵日 = start_date + FULL_CYCLE[N-1] 天（第1次=录入当天，累计0天）
-        - 找到第一个"背诵日" >= today 的阶段，即为当前待背诵阶段
-        - 该阶段的 next_review_date = 该阶段背诵日
-        - 若所有背诵日都 < today，进入待确认掌握
-        """
-        for stage, days in enumerate(self.FULL_CYCLE, start=1):
-            stage_due_date = start_date + timedelta(days=days)
-            if stage_due_date >= today:
-                return {
-                    "status": "learning",
-                    "current_stage": stage,
-                    "cycle_type": "full",
-                    "cycle_start_date": start_date,
-                    "next_review_date": stage_due_date
-                }
-        # 所有阶段都已到期，进入待确认掌握
+    def schedule_new_item(self, today: date) -> dict:
+        """新建条目初始状态：今天就要背第1次"""
         return {
-            "status": "pending_mastery",
-            "current_stage": len(self.FULL_CYCLE),
-            "cycle_type": "full",
-            "cycle_start_date": start_date,
+            "status": "learning",
+            "round": 1,
+            "interval": 0,
+            "consecutive_correct": 0,
             "next_review_date": today
         }
 
-    def mark_reviewed(self, item: dict, review_date: date) -> dict:
-        """打卡背诵后推进阶段。背诵日期固定为距 cycle_start_date 的累计天数。
-        - 若按时打卡，下次背诵日为下一阶段的累计日期
-        - 若延迟打卡（已超过后续阶段日期），跳到第一个未过期的阶段
-        - 若所有后续阶段都已过期，进入待确认掌握"""
-        cycle = self.SHORT_CYCLE if item["cycle_type"] == "short" else self.FULL_CYCLE
-        current_stage = item["current_stage"]
-        cycle_start = item["cycle_start_date"]
-        if isinstance(cycle_start, str):
-            cycle_start = date.fromisoformat(cycle_start)
+    def process_review(self, item: dict, today: date, result: str,
+                       is_retest: bool = False) -> dict:
+        """处理用户的4级评分反馈，返回新的调度状态。
 
-        # 从下一阶段开始，找第一个背诵日 >= review_date 的阶段
-        for stage in range(current_stage + 1, len(cycle) + 1):
-            stage_date = cycle_start + timedelta(days=cycle[stage - 1])
-            if stage_date >= review_date:
+        is_retest: True 表示该条目今日非首次出现（重背评分）。
+        返回值含 requeue_today 字段：True 表示需追加到今日队列末尾。
+        next_review_date 为 None 表示不更新数据库。
+        """
+        round_intervals = self.ROUND2_INTERVALS if item["round"] == 2 else self.ROUND1_INTERVALS
+        current_correct = item["consecutive_correct"]
+
+        if result == "perfect":
+            new_correct = current_correct + 1
+            return self._build_result(item["round"], round_intervals, new_correct, today)
+
+        elif result == "mostly_correct":
+            if is_retest:
                 return {
-                    "status": "learning",
-                    "current_stage": stage,
-                    "cycle_type": item["cycle_type"],
-                    "cycle_start_date": cycle_start,
-                    "next_review_date": stage_date
+                    "status": item["status"], "round": item["round"],
+                    "interval": item["interval"],
+                    "consecutive_correct": current_correct,
+                    "next_review_date": None,
+                    "requeue_today": True
                 }
+            else:
+                new_correct = current_correct + 1
+                return self._build_result(item["round"], round_intervals, new_correct, today,
+                                          requeue_today=True)
 
-        # 所有后续阶段都已过期，进入待确认掌握
+        elif result == "partial":
+            new_correct = max(0, current_correct - 2)
+            return self._build_result(item["round"], round_intervals, new_correct, today,
+                                      requeue_today=True)
+
+        elif result == "wrong":
+            return {
+                "status": "learning", "round": item["round"],
+                "interval": 1, "consecutive_correct": 0,
+                "next_review_date": today + timedelta(days=1),
+                "requeue_today": True
+            }
+
+        raise ValueError(f"未知的评分结果: {result}")
+
+    def _build_result(self, round_num: int, round_intervals: list, new_correct: int,
+                      today: date, requeue_today: bool = False) -> dict:
+        """根据新的 consecutive_correct 构建结果。"""
+        if new_correct >= len(round_intervals):
+            new_status = "mastered" if round_num == 1 else "archived"
+            new_interval = round_intervals[-1]
+            next_date = ""
+            requeue_today = False
+        else:
+            new_status = "learning"
+            new_interval = round_intervals[new_correct - 1] if new_correct > 0 else 1
+            next_date = today + timedelta(days=new_interval)
+
         return {
-            "status": "pending_mastery",
-            "current_stage": len(cycle),
-            "cycle_type": item["cycle_type"],
-            "cycle_start_date": cycle_start,
-            "next_review_date": review_date
+            "status": new_status, "round": round_num,
+            "interval": new_interval, "consecutive_correct": new_correct,
+            "next_review_date": next_date,
+            "requeue_today": requeue_today
         }
 
-    def confirm_mastery(self, item: dict, today: date, result: str) -> dict:
-        if result == "mastered":
-            return {
-                "status": "mastered",
-                "current_stage": item["current_stage"],
-                "cycle_type": item["cycle_type"],
-                "cycle_start_date": item["cycle_start_date"],
-                "next_review_date": item["next_review_date"]
-            }
-        if result == "fuzzy":
-            return {
-                "status": "learning",
-                "current_stage": 1,
-                "cycle_type": "short",
-                "cycle_start_date": today,
-                "next_review_date": today  # 短周期第1次背诵就在今天
-            }
-        if result == "forgotten":
-            return {
-                "status": "learning",
-                "current_stage": 1,
-                "cycle_type": "full",
-                "cycle_start_date": today,
-                "next_review_date": today  # 完整周期第1次背诵就在今天
-            }
-        raise ValueError(f"未知的掌握确认结果: {result}")
+    def start_round2(self, items: list, today: date) -> list:
+        """二轮巩固：批量重置条目为二轮状态"""
+        return [{
+            "status": "learning", "round": 2, "interval": 0,
+            "consecutive_correct": 0,
+            "next_review_date": today
+        } for item in items]
 
     def is_due_today(self, item: dict, today: date) -> bool:
-        if item["status"] == "mastered":
+        if item["status"] not in ("learning",):
             return False
         next_review = item["next_review_date"]
+        if not next_review or next_review == "":
+            return False
         if isinstance(next_review, str):
             next_review = date.fromisoformat(next_review)
         return next_review <= today
 
-    def stage_description(self, stage: int, cycle_type: str) -> str:
-        """返回简洁的阶段描述，不显示天数（避免语义歧义）。
-        天数信息可在背诵历史记录中查看。"""
-        if cycle_type == "short":
-            return f"第{stage}次背诵（短周期）"
-        return f"第{stage}次背诵"
+    def stage_description(self, consecutive_correct: int, round_num: int) -> str:
+        """返回简洁的阶段描述。"""
+        if round_num == 2:
+            return f"第{consecutive_correct + 1}次背诵（二轮）"
+        return f"第{consecutive_correct + 1}次背诵"
