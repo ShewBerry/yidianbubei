@@ -14,7 +14,7 @@ class BackfillReviewDialog(ctk.CTkToplevel):
         self.on_confirm_callback = on_confirm_callback
 
         ctk.CTkLabel(self, text="补签背诵", font=ctk.CTkFont(size=18, weight="bold")).pack(pady=(15, 5))
-        ctk.CTkLabel(self, text=f"条目：《{item['title']}》").pack(pady=(0, 15))
+        ctk.CTkLabel(self, text=f"条目：{item['title']}").pack(pady=(0, 15))
 
         ctk.CTkLabel(self, text="补签日期：").pack(anchor="w", padx=30)
         date_frame = ctk.CTkFrame(self, fg_color="transparent")

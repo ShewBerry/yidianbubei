@@ -7,7 +7,7 @@ from database import Database
 from scheduler import Scheduler
 from ui.main_window import MainWindow
 
-APP_NAME = "艾宾浩斯背诵"
+APP_NAME = "一点不背"
 
 def get_app_root() -> Path:
     """软件根目录：打包后为 exe 所在目录，开发模式为项目根目录"""

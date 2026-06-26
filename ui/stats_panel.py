@@ -37,7 +37,7 @@ class StatsPanel(ctk.CTkFrame):
         frame.pack(fill="x", pady=5, padx=5)
 
         ctk.CTkLabel(frame, text="今日进度",
-                     font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", padx=10, pady=(8, 3))
+                     font=heading_font()).pack(anchor="w", padx=10, pady=(8, 3))
 
         # 已完成 = 今日 perfect 评分的条目数（perfect 不重背，每条目当日最多1次）
         completed = self.db.get_perfect_count_in_range(today, today)
@@ -63,7 +63,7 @@ class StatsPanel(ctk.CTkFrame):
 
         count = self.db.get_perfect_count_in_range(week_start, week_end)
         ctk.CTkLabel(frame, text=f"{count} 条完全正确（{week_start.isoformat()} ~ {week_end.isoformat()}）",
-                     font=ctk.CTkFont(size=13)).pack(anchor="w", padx=10, pady=(0, 8))
+                     font=body_font()).pack(anchor="w", padx=10, pady=(0, 8))
 
     def _render_overview(self):
         """总览：学习中/已掌握/已归档"""
@@ -71,15 +71,15 @@ class StatsPanel(ctk.CTkFrame):
         frame.pack(fill="x", pady=5, padx=5)
 
         ctk.CTkLabel(frame, text="总览",
-                     font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", padx=10, pady=(8, 3))
+                     font=heading_font()).pack(anchor="w", padx=10, pady=(8, 3))
 
         counts = self.db.get_status_counts()
         ctk.CTkLabel(frame, text=f"学习中：{counts['learning']} 条",
-                     font=ctk.CTkFont(size=13), text_color="#e74c3c").pack(anchor="w", padx=10, pady=2)
+                     font=body_font(), text_color=COLOR_WRONG).pack(anchor="w", padx=10, pady=2)
         ctk.CTkLabel(frame, text=f"已掌握（一轮）：{counts['mastered']} 条",
-                     font=ctk.CTkFont(size=13), text_color="#2ecc71").pack(anchor="w", padx=10, pady=2)
+                     font=body_font(), text_color=COLOR_PERFECT).pack(anchor="w", padx=10, pady=2)
         ctk.CTkLabel(frame, text=f"已归档（二轮）：{counts['archived']} 条",
-                     font=ctk.CTkFont(size=13), text_color="#7f8c8d").pack(anchor="w", padx=10, pady=(2, 8))
+                     font=body_font(), text_color=COLOR_NEUTRAL).pack(anchor="w", padx=10, pady=(2, 8))
 
     def _render_category_progress(self):
         """各分类进度"""
@@ -87,12 +87,12 @@ class StatsPanel(ctk.CTkFrame):
         frame.pack(fill="x", pady=5, padx=5)
 
         ctk.CTkLabel(frame, text="各分类进度",
-                     font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", padx=10, pady=(8, 3))
+                     font=heading_font()).pack(anchor="w", padx=10, pady=(8, 3))
 
         progress = self.db.get_category_progress()
         if not progress:
-            ctk.CTkLabel(frame, text="暂无分类", text_color="gray",
-                         font=ctk.CTkFont(size=12)).pack(anchor="w", padx=10, pady=(0, 8))
+            ctk.CTkLabel(frame, text="暂无分类", text_color=COLOR_TEXT_SECONDARY,
+                         font=small_font()).pack(anchor="w", padx=10, pady=(0, 8))
             return
 
         for cat in progress:
@@ -111,8 +111,8 @@ class StatsPanel(ctk.CTkFrame):
                 rate_text = f"一轮 {round1_rate}% / 二轮 {round2_rate}%"
 
             ctk.CTkLabel(cat_frame, text=f"📁 {cat['name']}",
-                         font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+                         font=body_font()).pack(side="left")
             ctk.CTkLabel(cat_frame, text=f"{total} 条 · {rate_text}",
-                         font=ctk.CTkFont(size=12), text_color="gray").pack(side="right")
+                         font=small_font(), text_color=COLOR_TEXT_SECONDARY).pack(side="right")
 
         ctk.CTkLabel(frame, text="").pack(pady=(0, 8))

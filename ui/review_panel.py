@@ -2,6 +2,14 @@
 import customtkinter as ctk
 from datetime import date
 from scheduler import Scheduler
+from ui.theme import (
+    title_font, heading_font, review_title_font, body_font, small_font, big_font,
+    COLOR_PERFECT, COLOR_PERFECT_HOVER,
+    COLOR_MOSTLY, COLOR_MOSTLY_HOVER,
+    COLOR_PARTIAL, COLOR_PARTIAL_HOVER,
+    COLOR_WRONG, COLOR_WRONG_HOVER,
+    COLOR_TEXT_SECONDARY, PRIMARY,
+)
 
 
 class ReviewPanel(ctk.CTkFrame):
@@ -15,12 +23,17 @@ class ReviewPanel(ctk.CTkFrame):
         self.completed_count = 0
         self.total_count = 0
 
-        self.title_label = ctk.CTkLabel(self, text="今日待背诵",
-                                        font=ctk.CTkFont(size=20, weight="bold"))
+        self.title_label = ctk.CTkLabel(self, text="今日待背诵", font=title_font())
         self.title_label.pack(pady=(15, 5))
 
-        self.progress_label = ctk.CTkLabel(self, text="", text_color="gray")
-        self.progress_label.pack(pady=(0, 10))
+        self.progress_label = ctk.CTkLabel(self, text="", text_color=COLOR_TEXT_SECONDARY,
+                                           font=body_font())
+        self.progress_label.pack(pady=(0, 5))
+
+        # 进度条
+        self.progress_bar = ctk.CTkProgressBar(self, progress_color=PRIMARY, height=6)
+        self.progress_bar.set(0)
+        self.progress_bar.pack(fill="x", padx=60, pady=(0, 10))
 
         self.card_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.card_frame.pack(fill="both", expand=True, padx=30, pady=(0, 15))
@@ -56,17 +69,18 @@ class ReviewPanel(ctk.CTkFrame):
     def _update_progress(self):
         if self.total_count == 0:
             self.progress_label.configure(text="")
+            self.progress_bar.set(0)
         else:
             self.progress_label.configure(
                 text=f"{self.completed_count} / {self.total_count} 已完成")
+            self.progress_bar.set(self.completed_count / self.total_count)
 
     def _render_current_card(self):
         for widget in self.card_frame.winfo_children():
             widget.destroy()
 
         if not self.queue:
-            ctk.CTkLabel(self.card_frame, text="🎉 今日背诵完成",
-                         font=ctk.CTkFont(size=18)).pack(expand=True)
+            self._render_complete_state()
             return
 
         current = self.queue[0]
@@ -74,36 +88,67 @@ class ReviewPanel(ctk.CTkFrame):
         stage_desc = self.scheduler.stage_description(
             item["consecutive_correct"], item["round"])
 
-        card = ctk.CTkFrame(self.card_frame, corner_radius=10)
+        card = ctk.CTkFrame(self.card_frame, corner_radius=12)
         card.pack(fill="both", expand=True, pady=10)
 
         header = ctk.CTkFrame(card, fg_color="transparent")
         header.pack(fill="x", padx=20, pady=(15, 5))
-        ctk.CTkLabel(header, text=f"《{item['title']}》",
-                     font=ctk.CTkFont(size=18, weight="bold")).pack(side="left")
-        ctk.CTkLabel(header, text=stage_desc, text_color="gray").pack(side="right")
+        ctk.CTkLabel(header, text=item['title'],
+                     font=review_title_font()).pack(side="left")
+        ctk.CTkLabel(header, text=stage_desc, text_color=COLOR_TEXT_SECONDARY,
+                     font=body_font()).pack(side="right")
 
         if current.get("show_content"):
-            content_box = ctk.CTkTextbox(card, height=200)
+            content_box = ctk.CTkTextbox(card, height=200, font=body_font())
             content_box.pack(fill="x", padx=20, pady=10)
             content_box.insert("1.0", item["content"])
             content_box.configure(state="disabled")
 
+            # 评分按钮：加大高度、加emoji图标、加描述文案
             btn_frame = ctk.CTkFrame(card, fg_color="transparent")
-            btn_frame.pack(fill="x", padx=20, pady=(0, 15))
-            ctk.CTkButton(btn_frame, text="完全正确", fg_color="#2ecc71",
-                          command=lambda: self._handle_review("perfect")).pack(side="left", padx=5, expand=True)
-            ctk.CTkButton(btn_frame, text="基本正确", fg_color="#3498db",
-                          command=lambda: self._handle_review("mostly_correct")).pack(side="left", padx=5, expand=True)
-            ctk.CTkButton(btn_frame, text="部分正确", fg_color="#f39c12",
-                          command=lambda: self._handle_review("partial")).pack(side="left", padx=5, expand=True)
-            ctk.CTkButton(btn_frame, text="记错了", fg_color="#e74c3c",
-                          command=lambda: self._handle_review("wrong")).pack(side="left", padx=5, expand=True)
+            btn_frame.pack(fill="x", padx=20, pady=(5, 15))
+
+            ctk.CTkButton(btn_frame, text="✓ 完全正确", height=42,
+                          fg_color=COLOR_PERFECT, hover_color=COLOR_PERFECT_HOVER,
+                          font=heading_font(),
+                          command=lambda: self._handle_review("perfect")).pack(side="left", padx=4, expand=True)
+            ctk.CTkButton(btn_frame, text="👍 基本正确", height=42,
+                          fg_color=COLOR_MOSTLY, hover_color=COLOR_MOSTLY_HOVER,
+                          font=heading_font(),
+                          command=lambda: self._handle_review("mostly_correct")).pack(side="left", padx=4, expand=True)
+            ctk.CTkButton(btn_frame, text="🤔 部分正确", height=42,
+                          fg_color=COLOR_PARTIAL, hover_color=COLOR_PARTIAL_HOVER,
+                          font=heading_font(),
+                          command=lambda: self._handle_review("partial")).pack(side="left", padx=4, expand=True)
+            ctk.CTkButton(btn_frame, text="✗ 记错了", height=42,
+                          fg_color=COLOR_WRONG, hover_color=COLOR_WRONG_HOVER,
+                          font=heading_font(),
+                          command=lambda: self._handle_review("wrong")).pack(side="left", padx=4, expand=True)
         else:
-            ctk.CTkLabel(card, text="回忆后点击下方按钮查看正文",
-                         text_color="gray").pack(pady=40)
-            ctk.CTkButton(card, text="展示内容", width=150, fg_color="#3498db",
+            ctk.CTkLabel(card, text="先回忆内容，再点下方按钮查看正文",
+                         text_color=COLOR_TEXT_SECONDARY, font=body_font()).pack(pady=40)
+            ctk.CTkButton(card, text="📖 展示内容", width=160, height=38,
+                          fg_color=PRIMARY, hover_color=COLOR_PERFECT_HOVER,
+                          font=heading_font(),
                           command=self._show_content).pack(pady=10)
+
+    def _render_complete_state(self):
+        """今日背诵完成的庆祝态"""
+        card = ctk.CTkFrame(self.card_frame, corner_radius=12)
+        card.pack(fill="both", expand=True, pady=10)
+
+        ctk.CTkLabel(card, text="🎉", font=ctk.CTkFont(size=48)).pack(pady=(50, 10))
+        ctk.CTkLabel(card, text="今日背诵完成", font=ctk.CTkFont(family="微软雅黑", size=22, weight="bold")).pack(pady=5)
+
+        # 显示今日统计
+        today = date.today()
+        completed = self.db.get_perfect_count_in_range(today, today)
+        if completed > 0:
+            ctk.CTkLabel(card, text=f"今天完成了 {completed} 条背诵",
+                         text_color=COLOR_TEXT_SECONDARY, font=body_font()).pack(pady=(5, 30))
+        else:
+            ctk.CTkLabel(card, text="休息一下，明天继续加油",
+                         text_color=COLOR_TEXT_SECONDARY, font=body_font()).pack(pady=(5, 30))
 
     def _show_content(self):
         if self.queue:

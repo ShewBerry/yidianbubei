@@ -6,6 +6,7 @@ from ui.list_panels import AllItemsPanel, MasteredPanel
 from ui.add_dialog import AddItemDialog
 from ui.category_panel import CategoryPanel
 from ui.stats_panel import StatsPanel
+from ui.theme import title_font, heading_font, PRIMARY, PRIMARY_HOVER
 
 
 class MainWindow(ctk.CTk):
@@ -14,15 +15,16 @@ class MainWindow(ctk.CTk):
         self.db = db
         self.scheduler = scheduler
 
-        self.title("艾宾浩斯背诵助手")
+        self.title("一点不背")
         self.geometry("900x650")
 
         # 顶部栏
         top_bar = ctk.CTkFrame(self)
         top_bar.pack(fill="x", padx=15, pady=(15, 0))
-        ctk.CTkLabel(top_bar, text="📖 艾宾浩斯背诵助手",
-                     font=ctk.CTkFont(size=20, weight="bold")).pack(side="left", padx=10, pady=10)
+        ctk.CTkLabel(top_bar, text="📖 一点不背",
+                     font=title_font()).pack(side="left", padx=10, pady=10)
         ctk.CTkButton(top_bar, text="+ 新建背诵", width=120,
+                      fg_color=PRIMARY, hover_color=PRIMARY_HOVER, font=heading_font(),
                       command=self._open_add_dialog).pack(side="right", padx=10, pady=10)
 
         # 标签页

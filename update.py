@@ -108,7 +108,7 @@ def main():
         lnk_path=DESKTOP_DIR / f"{APP_NAME}.lnk",
         target=dst_exe,
         work_dir=INSTALL_DIR,
-        description="艾宾浩斯背诵软件"
+        description="一点不背"
     )
     print(f"快捷方式已创建：{DESKTOP_DIR / f'{APP_NAME}.lnk'}", flush=True)
 

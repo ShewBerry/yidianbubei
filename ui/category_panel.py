@@ -11,18 +11,21 @@ class CategoryPanel(ctk.CTkFrame):
         self.on_category_selected = on_category_selected
         self.selected_category_id = None  # None 表示"全部"
 
-        ctk.CTkLabel(self, text="分类管理", font=ctk.CTkFont(size=20, weight="bold")).pack(pady=(15, 10))
+        ctk.CTkLabel(self, text="分类管理", font=title_font()).pack(pady=(15, 10))
 
         # 工具栏
         toolbar = ctk.CTkFrame(self, fg_color="transparent")
         toolbar.pack(fill="x", padx=15, pady=(0, 5))
-        ctk.CTkButton(toolbar, text="＋ 新建", width=80, command=self._add_category).pack(side="left", padx=(0, 5))
-        ctk.CTkButton(toolbar, text="✎ 重命名", width=90, command=self._rename_category).pack(side="left", padx=5)
-        ctk.CTkButton(toolbar, text="🗑 删除", width=80, fg_color="#e74c3c", hover_color="#c0392b",
-                      command=self._delete_category).pack(side="left", padx=5)
-        ctk.CTkButton(toolbar, text="⟲ 刷新", width=80, command=self.refresh).pack(side="left", padx=5)
-        ctk.CTkButton(toolbar, text="🔁 二轮巩固", width=110, fg_color="#9b59b6", hover_color="#8e44ad",
-                      command=self._start_round2).pack(side="left", padx=5)
+        ctk.CTkButton(toolbar, text="＋ 新建", width=80, font=body_font(),
+                      command=self._add_category).pack(side="left", padx=(0, 5))
+        ctk.CTkButton(toolbar, text="✎ 重命名", width=90, font=body_font(),
+                      command=self._rename_category).pack(side="left", padx=5)
+        ctk.CTkButton(toolbar, text="🗑 删除", width=80, fg_color=COLOR_DANGER, hover_color=COLOR_DANGER_HOVER,
+                      font=body_font(), command=self._delete_category).pack(side="left", padx=5)
+        ctk.CTkButton(toolbar, text="⟲ 刷新", width=80, fg_color=COLOR_NEUTRAL, hover_color=COLOR_NEUTRAL_HOVER,
+                      font=body_font(), command=self.refresh).pack(side="left", padx=5)
+        ctk.CTkButton(toolbar, text="🔁 二轮巩固", width=110, fg_color=COLOR_ROUND2, hover_color=COLOR_ROUND2_HOVER,
+                      font=body_font(), command=self._start_round2).pack(side="left", padx=5)
 
         # 树形视图容器
         tree_container = ctk.CTkFrame(self)

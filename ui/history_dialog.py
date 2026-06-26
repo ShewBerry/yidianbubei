@@ -12,7 +12,7 @@ class ReviewHistoryDialog(ctk.CTkToplevel):
         self.item = item
 
         ctk.CTkLabel(self, text="背诵记录", font=ctk.CTkFont(size=18, weight="bold")).pack(pady=(15, 5))
-        ctk.CTkLabel(self, text=f"《{item['title']}》", text_color="gray").pack(pady=(0, 10))
+        ctk.CTkLabel(self, text=item['title'], text_color="gray").pack(pady=(0, 10))
         ctk.CTkLabel(self, text=f"开始日期：{item['created_date']}").pack(anchor="w", padx=30, pady=(0, 8))
 
         logs = db.get_review_logs(item["id"])
