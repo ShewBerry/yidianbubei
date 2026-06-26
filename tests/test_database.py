@@ -240,3 +240,40 @@ def test_get_category_progress(db):
     assert progress[0]["learning"] == 1
     assert progress[0]["mastered"] == 1
     assert progress[0]["archived"] == 0
+
+
+def test_items_table_has_notes_field(db):
+    """items 表应包含 notes 字段"""
+    cols = {row[1] for row in db.conn.execute("PRAGMA table_info(items)")}
+    assert "notes" in cols
+
+
+def test_item_marks_table_exists(db):
+    """item_marks 表应存在"""
+    cursor = db.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    tables = {row[0] for row in cursor.fetchall()}
+    assert "item_marks" in tables
+
+
+def test_settings_table_exists(db):
+    """settings 表应存在"""
+    cursor = db.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    tables = {row[0] for row in cursor.fetchall()}
+    assert "settings" in tables
+
+
+def test_create_item_default_notes_empty(db):
+    """新建条目 notes 默认为空字符串"""
+    today = date(2026, 6, 26)
+    item_id = db.create_item("测试", "内容", today, today)
+    item = db.get_item(item_id)
+    assert item["notes"] == ""
+
+
+def test_update_item_notes(db):
+    """update_item 应能更新 notes 字段"""
+    today = date(2026, 6, 26)
+    item_id = db.create_item("测试", "内容", today, today)
+    db.update_item(item_id, notes="这是笔记")
+    item = db.get_item(item_id)
+    assert item["notes"] == "这是笔记"

@@ -43,7 +43,27 @@ class Database:
                 interval_after INTEGER,
                 FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS item_marks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id INTEGER NOT NULL,
+                start_pos INTEGER NOT NULL,
+                end_pos INTEGER NOT NULL,
+                mark_type TEXT NOT NULL,
+                created_date TEXT NOT NULL,
+                FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_item_marks_item ON item_marks(item_id);
+
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
         """)
+        # 迁移：为旧库的 items 表补 notes 字段（已存在则忽略）
+        cols = {row[1] for row in self.conn.execute("PRAGMA table_info(items)")}
+        if "notes" not in cols:
+            self.conn.execute("ALTER TABLE items ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
         self.conn.commit()
 
     # ===== 分类 CRUD（不变）=====
@@ -112,7 +132,8 @@ class Database:
         return {
             "id": row[0], "title": row[1], "content": row[2], "created_date": row[3],
             "category_id": row[4], "status": row[5], "round": row[6], "interval": row[7],
-            "consecutive_correct": row[8], "next_review_date": row[9]
+            "consecutive_correct": row[8], "next_review_date": row[9],
+            "notes": row[10] if len(row) > 10 else ""
         }
 
     def get_due_items(self, today) -> list:
@@ -163,7 +184,7 @@ class Database:
 
     def update_item(self, item_id: int, **fields):
         allowed = {"title", "content", "status", "round", "interval",
-                   "consecutive_correct", "next_review_date", "category_id"}
+                   "consecutive_correct", "next_review_date", "category_id", "notes"}
         updates = {k: v for k, v in fields.items() if k in allowed}
         if not updates:
             return
