@@ -7,6 +7,8 @@ from ui.theme import (
     COLOR_NEUTRAL, COLOR_NEUTRAL_HOVER, COLOR_WARN, COLOR_WARN_HOVER,
     COLOR_TEXT_SECONDARY, PRIMARY, COLOR_PERFECT_HOVER,
 )
+from ui.markable_textbox import MarkableTextbox
+from ui.notes_box import NotesBox
 
 
 class AllItemsPanel(ctk.CTkFrame):
@@ -100,10 +102,15 @@ class AllItemsPanel(ctk.CTkFrame):
                      font=body_font()).pack(side="right")
 
         if self.expanded_item_id == item["id"]:
-            content_box = ctk.CTkTextbox(card, height=120, font=body_font())
-            content_box.pack(fill="x", padx=12, pady=5)
-            content_box.insert("1.0", item["content"])
-            content_box.configure(state="disabled")
+            # 可标记+可缩放内容框
+            self._current_markable = MarkableTextbox(card, self.db, item, read_only_marks=False)
+            self._current_markable.pack(fill="x", padx=12, pady=5)
+
+            # 条目笔记
+            self._current_notes = NotesBox(card, self.db, item["id"],
+                                            current_notes=item.get("notes", ""), height=70)
+            self._current_notes.pack(fill="x", padx=12, pady=(0, 5))
+
             btn_frame = ctk.CTkFrame(card, fg_color="transparent")
             btn_frame.pack(fill="x", padx=12, pady=(0, 8))
             ctk.CTkButton(btn_frame, text="收起", width=80, fg_color=COLOR_NEUTRAL,
@@ -243,10 +250,15 @@ class MasteredPanel(ctk.CTkFrame):
                      font=body_font()).pack(side="right")
 
         if self.expanded_item_id == item["id"]:
-            content_box = ctk.CTkTextbox(card, height=120, font=body_font())
-            content_box.pack(fill="x", padx=12, pady=5)
-            content_box.insert("1.0", item["content"])
-            content_box.configure(state="disabled")
+            # 只读查看高亮（已掌握面板不新增标记，但可见历史高亮）
+            self._current_markable = MarkableTextbox(card, self.db, item, read_only_marks=True)
+            self._current_markable.pack(fill="x", padx=12, pady=5)
+
+            # 笔记仍可编辑
+            self._current_notes = NotesBox(card, self.db, item["id"],
+                                            current_notes=item.get("notes", ""), height=70)
+            self._current_notes.pack(fill="x", padx=12, pady=(0, 5))
+
             btn_frame = ctk.CTkFrame(card, fg_color="transparent")
             btn_frame.pack(fill="x", padx=12, pady=(0, 8))
             ctk.CTkButton(btn_frame, text="收起", width=80, fg_color=COLOR_NEUTRAL,
