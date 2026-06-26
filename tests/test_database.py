@@ -354,3 +354,45 @@ def test_setting_persists_across_connection(db):
     db2.init()
     assert db2.get_setting("content_box_height", "200") == "400"
     db2.close()
+
+
+def test_shift_marks_on_content_edit(db):
+    """编辑正文（长度变化）后，已有标记应按比例平移。
+    start 向下取整、end 向上取整，避免标记范围被压缩消失。
+    """
+    today = date(2026, 6, 26)
+    item_id = db.create_item("测试", "0123456789", today, today)  # 长度10
+    db.add_mark(item_id, 2, 5, "forgot")   # 标记 "234"
+    db.add_mark(item_id, 7, 9, "fuzzy")    # 标记 "78"
+    # 把正文缩短为长度5：01234
+    db.update_item(item_id, content="01234")
+    marks = db.get_marks(item_id)
+    # 旧 start=2 → floor(2*5/10)=1；旧 end=5 → ceil(5*5/10)=3
+    # 旧 start=7 → floor(7*5/10)=3；旧 end=9 → ceil(9*5/10)=5
+    assert len(marks) == 2
+    assert marks[0]["start_pos"] == 1
+    assert marks[0]["end_pos"] == 3
+    assert marks[1]["start_pos"] == 3
+    assert marks[1]["end_pos"] == 5
+
+
+def test_shift_marks_clears_when_content_empty(db):
+    """正文清空后，标记应全部删除"""
+    today = date(2026, 6, 26)
+    item_id = db.create_item("测试", "abcdefg", today, today)
+    db.add_mark(item_id, 0, 3, "forgot")
+    db.update_item(item_id, content="")
+    marks = db.get_marks(item_id)
+    assert len(marks) == 0
+
+
+def test_shift_marks_not_triggered_on_other_fields(db):
+    """只更新非 content 字段时，不应触发平移"""
+    today = date(2026, 6, 26)
+    item_id = db.create_item("测试", "abcdefg", today, today)
+    db.add_mark(item_id, 0, 3, "forgot")
+    db.update_item(item_id, status="mastered")
+    marks = db.get_marks(item_id)
+    assert len(marks) == 1
+    assert marks[0]["start_pos"] == 0
+    assert marks[0]["end_pos"] == 3

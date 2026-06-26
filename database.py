@@ -189,6 +189,11 @@ class Database:
         updates = {k: v for k, v in fields.items() if k in allowed}
         if not updates:
             return
+        # 编辑 content 时需平移已有标记
+        if "content" in updates:
+            old_item = self.get_item(item_id)
+            old_len = len(old_item["content"]) if old_item else 0
+            new_len = len(updates["content"])
         for date_field in ("next_review_date",):
             if date_field in updates and hasattr(updates[date_field], "isoformat"):
                 updates[date_field] = updates[date_field].isoformat()
@@ -196,6 +201,8 @@ class Database:
         values = list(updates.values()) + [item_id]
         self.conn.execute(f"UPDATE items SET {set_clause} WHERE id=?", values)
         self.conn.commit()
+        if "content" in updates:
+            self._shift_marks(item_id, old_len, new_len)
 
     def bring_overdue_to_today(self, today):
         """将过期未处理的条目顺延到今天"""
@@ -320,6 +327,35 @@ class Database:
 
     def delete_mark(self, mark_id: int):
         self.conn.execute("DELETE FROM item_marks WHERE id=?", (mark_id,))
+        self.conn.commit()
+
+    def _shift_marks(self, item_id: int, old_len: int, new_len: int):
+        """编辑 content 后按比例平移已有标记位置。
+        old_len=0 或 new_len=0 时清空该条目所有标记。
+        start 向下取整、end 向上取整，避免标记范围被意外压缩消失。
+        """
+        import math
+        if old_len == 0 or new_len == 0:
+            self.conn.execute("DELETE FROM item_marks WHERE item_id=?", (item_id,))
+            self.conn.commit()
+            return
+        cursor = self.conn.execute(
+            "SELECT id, start_pos, end_pos FROM item_marks WHERE item_id=?", (item_id,))
+        rows = cursor.fetchall()
+        for mark_id, start, end in rows:
+            new_start = math.floor(start * new_len / old_len)
+            new_end = math.ceil(end * new_len / old_len)
+            if new_start >= new_end or new_start >= new_len:
+                self.conn.execute("DELETE FROM item_marks WHERE id=?", (mark_id,))
+            else:
+                # end 不超过新长度
+                new_end = min(new_end, new_len)
+                if new_start >= new_end:
+                    self.conn.execute("DELETE FROM item_marks WHERE id=?", (mark_id,))
+                else:
+                    self.conn.execute(
+                        "UPDATE item_marks SET start_pos=?, end_pos=? WHERE id=?",
+                        (new_start, new_end, mark_id))
         self.conn.commit()
 
     # ===== 设置 CRUD =====
