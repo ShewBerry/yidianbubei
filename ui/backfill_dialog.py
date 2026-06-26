@@ -4,27 +4,27 @@ from datetime import date, timedelta
 
 
 class BackfillReviewDialog(ctk.CTkToplevel):
-    """补签对话框：为指定条目补打过去某天的复习打卡。
-    补签后从补签日期重算下次复习日期。"""
+    """补签对话框：为指定条目补打过去某天的背诵打卡。
+    补签后从补签日期重算下次背诵日期。"""
     def __init__(self, parent, item, on_confirm_callback):
         super().__init__(parent)
-        self.title("补签复习")
+        self.title("补签背诵")
         self.geometry("420x320")
         self.item = item
         self.on_confirm_callback = on_confirm_callback
 
-        ctk.CTkLabel(self, text="补签复习", font=ctk.CTkFont(size=18, weight="bold")).pack(pady=(15, 5))
+        ctk.CTkLabel(self, text="补签背诵", font=ctk.CTkFont(size=18, weight="bold")).pack(pady=(15, 5))
         ctk.CTkLabel(self, text=f"条目：《{item['title']}》").pack(pady=(0, 5))
 
         # 当前状态提示
         next_review = item["next_review_date"]
         if isinstance(next_review, str):
             next_review = date.fromisoformat(next_review)
-        info = f"当前阶段：第{item['current_stage']}次复习  |  下次复习：{next_review.isoformat()}"
+        info = f"当前阶段：第{item['current_stage']}次背诵  |  下次背诵：{next_review.isoformat()}"
         ctk.CTkLabel(self, text=info, text_color="gray").pack(pady=(0, 15))
 
         # 日期输入
-        ctk.CTkLabel(self, text="补签的复习日期：").pack(anchor="w", padx=30)
+        ctk.CTkLabel(self, text="补签的背诵日期：").pack(anchor="w", padx=30)
         date_frame = ctk.CTkFrame(self, fg_color="transparent")
         date_frame.pack(fill="x", padx=30, pady=(2, 5))
         today = date.today()
@@ -37,7 +37,7 @@ class BackfillReviewDialog(ctk.CTkToplevel):
         ctk.CTkButton(date_frame, text="前天", width=60,
                       command=lambda: self.date_entry.delete(0, "end") or self.date_entry.insert(0, (today - timedelta(days=2)).isoformat())).pack(side="left")
 
-        ctk.CTkLabel(self, text="补签后，下次复习日期将从该日期起重新计算。",
+        ctk.CTkLabel(self, text="补签后，下次背诵日期将从该日期起重新计算。",
                      text_color="gray", font=ctk.CTkFont(size=11)).pack(pady=(5, 15))
 
         # 按钮

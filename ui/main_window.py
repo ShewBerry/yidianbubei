@@ -29,7 +29,7 @@ class MainWindow(ctk.CTk):
         self.tabview = ctk.CTkTabview(self)
         self.tabview.pack(fill="both", expand=True, padx=15, pady=15)
 
-        self.tab_today = self.tabview.add("今日待复习")
+        self.tab_today = self.tabview.add("今日待背诵")
         self.tab_all = self.tabview.add("全部条目")
         self.tab_mastered = self.tabview.add("已掌握")
         self.tab_category = self.tabview.add("分类管理")

@@ -32,8 +32,8 @@ class EditItemDialog(ctk.CTkToplevel):
         self.content_text.pack(padx=20, pady=(5, 8))
         self.content_text.insert("1.0", item["content"])
 
-        # 提示：修改正文不影响已排程的复习进度
-        ctk.CTkLabel(self, text="提示：修改标题/正文/分类不会影响当前复习进度",
+        # 提示：修改正文不影响已排程的背诵进度
+        ctk.CTkLabel(self, text="提示：修改标题/正文/分类不会影响当前背诵进度",
                      text_color="gray", font=ctk.CTkFont(size=11)).pack(padx=20, pady=(0, 5))
 
         # 按钮
@@ -65,7 +65,7 @@ class EditItemDialog(ctk.CTkToplevel):
 
     def _on_delete(self):
         if not messagebox.askyesno("确认删除",
-                                    f"确定删除条目“{self.item['title']}”吗？\n该条目的所有复习记录也会一起删除，此操作不可撤销。",
+                                    f"确定删除条目“{self.item['title']}”吗？\n该条目的所有背诵记录也会一起删除，此操作不可撤销。",
                                     parent=self):
             return
         self.db.delete_item(self.item["id"])

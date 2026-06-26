@@ -184,7 +184,7 @@ class Database:
         return [self._row_to_item(row) for row in cursor.fetchall()]
 
     def delete_item(self, item_id: int):
-        """删除条目及其所有复习记录。外键约束会自动级联删除 review_logs（若开启），
+        """删除条目及其所有背诵记录。外键约束会自动级联删除 review_logs（若开启），
         这里显式删除以防外键未启用的情况。"""
         self.conn.execute("DELETE FROM review_logs WHERE item_id=?", (item_id,))
         self.conn.execute("DELETE FROM items WHERE id=?", (item_id,))
@@ -214,7 +214,7 @@ class Database:
         self.conn.commit()
 
     def get_review_logs(self, item_id: int) -> list:
-        """返回指定条目的所有复习记录，按复习日期升序。
+        """返回指定条目的所有背诵记录，按背诵日期升序。
         每项含 id/review_date/stage_completed/result。"""
         cursor = self.conn.execute(
             """SELECT id, review_date, stage_completed, result

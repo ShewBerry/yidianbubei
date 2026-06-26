@@ -76,9 +76,9 @@ class AllItemsPanel(ctk.CTkFrame):
         if item["status"] == "pending_mastery":
             status_text = "待确认掌握"
         elif next_review <= today:
-            status_text = "今日待复习"
+            status_text = "今日待背诵"
         else:
-            status_text = f"下次复习：{next_review.isoformat()}"
+            status_text = f"下次背诵：{next_review.isoformat()}"
         ctk.CTkLabel(header, text=status_text, text_color="gray").pack(side="right")
 
         if self.expanded_item_id == item["id"]:

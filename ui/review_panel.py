@@ -3,7 +3,7 @@ from datetime import date, datetime
 from scheduler import Scheduler
 
 class ReviewPanel(ctk.CTkFrame):
-    """今日待复习面板：展示到期条目，支持打卡和掌握确认"""
+    """今日待背诵面板：展示到期条目，支持打卡和掌握确认"""
     def __init__(self, parent, db, scheduler: Scheduler, on_data_changed=None):
         super().__init__(parent)
         self.db = db
@@ -11,7 +11,7 @@ class ReviewPanel(ctk.CTkFrame):
         self.on_data_changed = on_data_changed
         self.expanded_item_id = None
 
-        self.title_label = ctk.CTkLabel(self, text="今日待复习", font=ctk.CTkFont(size=20, weight="bold"))
+        self.title_label = ctk.CTkLabel(self, text="今日待背诵", font=ctk.CTkFont(size=20, weight="bold"))
         self.title_label.pack(pady=(15, 10))
 
         self.scroll_frame = ctk.CTkScrollableFrame(self, label_text="")
@@ -27,7 +27,7 @@ class ReviewPanel(ctk.CTkFrame):
         due_items = self.db.get_due_items(today)
 
         if not due_items:
-            ctk.CTkLabel(self.scroll_frame, text="今天没有需要复习的内容 🎉",
+            ctk.CTkLabel(self.scroll_frame, text="今天没有需要背诵的内容 🎉",
                          font=ctk.CTkFont(size=14)).pack(pady=50)
             return
 
@@ -43,7 +43,7 @@ class ReviewPanel(ctk.CTkFrame):
 
         stage_desc = self.scheduler.stage_description(item["current_stage"], item["cycle_type"])
         if item["status"] == "pending_mastery":
-            stage_desc = "✅ 完成复习周期，请确认掌握"
+            stage_desc = "✅ 完成背诵周期，请确认掌握"
 
         ctk.CTkLabel(header_frame, text=f"《{item['title']}》",
                      font=ctk.CTkFont(size=15, weight="bold")).pack(side="left")
@@ -63,7 +63,7 @@ class ReviewPanel(ctk.CTkFrame):
                 ctk.CTkButton(btn_frame, text="确认掌握", fg_color="#2ecc71",
                               command=lambda: self._confirm_mastery(item)).pack(side="right", padx=(5, 0))
             else:
-                ctk.CTkButton(btn_frame, text="打卡复习", fg_color="#3498db",
+                ctk.CTkButton(btn_frame, text="打卡背诵", fg_color="#3498db",
                               command=lambda: self._mark_reviewed(item, today)).pack(side="right", padx=(5, 0))
                 ctk.CTkButton(btn_frame, text="补签", fg_color="#f39c12", hover_color="#d68910",
                               width=70, command=lambda: self._backfill_review(item)).pack(side="right", padx=(0, 5))
@@ -119,7 +119,7 @@ class ReviewPanel(ctk.CTkFrame):
         BackfillReviewDialog(self, item, self._handle_backfill)
 
     def _handle_backfill(self, item, review_date):
-        """补签：用历史日期作为复习日，推进阶段并从该日期重算下次复习。"""
+        """补签：用历史日期作为背诵日，推进阶段并从该日期重算下次背诵。"""
         result = self.scheduler.mark_reviewed(item, review_date)
         self.db.update_item(
             item["id"],

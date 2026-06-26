@@ -10,7 +10,7 @@ class MasteryConfirmDialog(ctk.CTkToplevel):
         self.on_result_callback = on_result_callback
 
         ctk.CTkLabel(self, text=f"《{item['title']}》", font=ctk.CTkFont(size=18, weight="bold")).pack(pady=(15, 5))
-        ctk.CTkLabel(self, text="你已经完成了完整复习周期，请确认掌握情况：").pack(pady=(0, 10))
+        ctk.CTkLabel(self, text="你已经完成了完整背诵周期，请确认掌握情况：").pack(pady=(0, 10))
 
         content_box = ctk.CTkTextbox(self, width=460, height=220)
         content_box.pack(padx=20, pady=5)
