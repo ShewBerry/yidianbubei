@@ -42,8 +42,6 @@ class ReviewPanel(ctk.CTkFrame):
         header_frame.pack(fill="x", padx=10, pady=(8, 3))
 
         stage_desc = self.scheduler.stage_description(item["current_stage"], item["cycle_type"])
-        if item["cycle_type"] == "short":
-            stage_desc += "（短周期再确认）"
         if item["status"] == "pending_mastery":
             stage_desc = "✅ 完成复习周期，请确认掌握"
 
@@ -72,6 +70,8 @@ class ReviewPanel(ctk.CTkFrame):
 
             ctk.CTkButton(btn_frame, text="收起", fg_color="gray",
                           width=80, command=self._collapse).pack(side="right")
+            ctk.CTkButton(btn_frame, text="历史", fg_color="#7f8c8d", hover_color="#95a5a6",
+                          width=70, command=lambda: self._show_history(item)).pack(side="right", padx=(0, 5))
             ctk.CTkButton(btn_frame, text="编辑", fg_color="#7f8c8d", hover_color="#95a5a6",
                           width=70, command=lambda: self._edit_item(item)).pack(side="right", padx=(0, 5))
         else:
@@ -109,6 +109,10 @@ class ReviewPanel(ctk.CTkFrame):
         EditItemDialog(self, self.db, item,
                        on_saved_callback=lambda _id: self.on_data_changed() if self.on_data_changed else self.refresh(),
                        on_deleted_callback=lambda _id: self.on_data_changed() if self.on_data_changed else self.refresh())
+
+    def _show_history(self, item):
+        from ui.history_dialog import ReviewHistoryDialog
+        ReviewHistoryDialog(self, self.db, item)
 
     def _backfill_review(self, item):
         from ui.backfill_dialog import BackfillReviewDialog

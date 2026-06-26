@@ -106,7 +106,8 @@ class Scheduler:
         return next_review <= today
 
     def stage_description(self, stage: int, cycle_type: str) -> str:
-        cycle = self.SHORT_CYCLE if cycle_type == "short" else self.FULL_CYCLE
-        if stage < 1 or stage > len(cycle):
-            return f"第{stage}次复习"
-        return f"第{stage}次复习（{cycle[stage - 1]}天后）"
+        """返回简洁的阶段描述，不显示天数（避免语义歧义）。
+        天数信息可在复习历史记录中查看。"""
+        if cycle_type == "short":
+            return f"第{stage}次复习（短周期）"
+        return f"第{stage}次复习"

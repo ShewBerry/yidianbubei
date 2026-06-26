@@ -213,5 +213,16 @@ class Database:
         )
         self.conn.commit()
 
+    def get_review_logs(self, item_id: int) -> list:
+        """返回指定条目的所有复习记录，按复习日期升序。
+        每项含 id/review_date/stage_completed/result。"""
+        cursor = self.conn.execute(
+            """SELECT id, review_date, stage_completed, result
+               FROM review_logs WHERE item_id=? ORDER BY review_date ASC, id ASC""",
+            (item_id,)
+        )
+        return [{"id": row[0], "review_date": row[1],
+                 "stage_completed": row[2], "result": row[3]} for row in cursor.fetchall()]
+
     def close(self):
         self.conn.close()

@@ -90,6 +90,8 @@ class AllItemsPanel(ctk.CTkFrame):
             btn_frame.pack(fill="x", padx=10, pady=(0, 8))
             ctk.CTkButton(btn_frame, text="收起", width=80, fg_color="gray",
                           command=self._collapse).pack(side="right")
+            ctk.CTkButton(btn_frame, text="历史", fg_color="#7f8c8d", hover_color="#95a5a6",
+                          width=70, command=lambda: self._show_history(item)).pack(side="right", padx=(0, 5))
             ctk.CTkButton(btn_frame, text="编辑", fg_color="#7f8c8d", hover_color="#95a5a6",
                           width=70, command=lambda: self._edit_item(item)).pack(side="right", padx=(0, 5))
             if item["status"] != "pending_mastery":
@@ -112,6 +114,10 @@ class AllItemsPanel(ctk.CTkFrame):
         EditItemDialog(self, self.db, item,
                        on_saved_callback=lambda _id: self.refresh(),
                        on_deleted_callback=lambda _id: self.refresh())
+
+    def _show_history(self, item):
+        from ui.history_dialog import ReviewHistoryDialog
+        ReviewHistoryDialog(self, self.db, item)
 
     def _backfill_review(self, item):
         from ui.backfill_dialog import BackfillReviewDialog
@@ -201,6 +207,8 @@ class MasteredPanel(ctk.CTkFrame):
             btn_frame.pack(fill="x", padx=10, pady=(0, 8))
             ctk.CTkButton(btn_frame, text="收起", width=80, fg_color="gray",
                           command=self._collapse).pack(side="right")
+            ctk.CTkButton(btn_frame, text="历史", fg_color="#7f8c8d", hover_color="#95a5a6",
+                          width=70, command=lambda: self._show_history(item)).pack(side="right", padx=(0, 5))
             ctk.CTkButton(btn_frame, text="编辑", fg_color="#7f8c8d", hover_color="#95a5a6",
                           width=70, command=lambda: self._edit_item(item)).pack(side="right", padx=(0, 5))
         else:
@@ -220,3 +228,7 @@ class MasteredPanel(ctk.CTkFrame):
         EditItemDialog(self, self.db, item,
                        on_saved_callback=lambda _id: self.refresh(),
                        on_deleted_callback=lambda _id: self.refresh())
+
+    def _show_history(self, item):
+        from ui.history_dialog import ReviewHistoryDialog
+        ReviewHistoryDialog(self, self.db, item)

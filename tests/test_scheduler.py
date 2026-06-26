@@ -130,17 +130,17 @@ def test_is_due_today_false_when_mastered():
 
 def test_stage_description_full_cycle():
     s = Scheduler()
-    assert s.stage_description(1, "full") == "第1次复习（1天后）"
-    assert s.stage_description(6, "full") == "第6次复习（30天后）"
+    assert s.stage_description(1, "full") == "第1次复习"
+    assert s.stage_description(6, "full") == "第6次复习"
 
 def test_stage_description_short_cycle():
     s = Scheduler()
-    assert s.stage_description(1, "short") == "第1次复习（1天后）"
-    assert s.stage_description(3, "short") == "第3次复习（7天后）"
+    assert s.stage_description(1, "short") == "第1次复习（短周期）"
+    assert s.stage_description(3, "short") == "第3次复习（短周期）"
 
 def test_stage_description_pending_mastery():
     s = Scheduler()
-    assert s.stage_description(6, "full") == "第6次复习（30天后）"
+    assert s.stage_description(6, "full") == "第6次复习"
 
 # ===== backfill_schedule 测试 =====
 # FULL_CYCLE = [1, 2, 4, 7, 15, 30]
