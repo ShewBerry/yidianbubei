@@ -32,8 +32,14 @@ class EditItemDialog(ctk.CTkToplevel):
         self.content_text.pack(padx=20, pady=(5, 8))
         self.content_text.insert("1.0", item["content"])
 
+        # 笔记
+        ctk.CTkLabel(self, text="笔记（可选）：").pack(anchor="w", padx=20)
+        self.notes_text = ctk.CTkTextbox(self, width=410, height=80)
+        self.notes_text.pack(padx=20, pady=(5, 8))
+        self.notes_text.insert("1.0", item.get("notes", "") or "")
+
         # 提示：修改正文不影响已排程的背诵进度
-        ctk.CTkLabel(self, text="提示：修改标题/正文/分类不会影响当前背诵进度",
+        ctk.CTkLabel(self, text="提示：修改标题/正文/分类不会影响当前背诵进度；修改正文会按比例平移已有标记",
                      text_color="gray", font=ctk.CTkFont(size=11)).pack(padx=20, pady=(0, 5))
 
         # 按钮
@@ -56,9 +62,11 @@ class EditItemDialog(ctk.CTkToplevel):
         if not content:
             messagebox.showwarning("提示", "请输入正文", parent=self)
             return
+        notes = self.notes_text.get("1.0", "end").rstrip("\n")
         selected = self.category_picker.get_category_id()
         category_id = selected
-        self.db.update_item(self.item["id"], title=title, content=content, category_id=category_id)
+        self.db.update_item(self.item["id"], title=title, content=content,
+                            category_id=category_id, notes=notes)
         if self.on_saved_callback:
             self.on_saved_callback(self.item["id"])
         self.destroy()
