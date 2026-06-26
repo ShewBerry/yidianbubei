@@ -1,32 +1,25 @@
+# ui/backfill_dialog.py
 import customtkinter as ctk
 from tkinter import messagebox
 from datetime import date, timedelta
 
 
 class BackfillReviewDialog(ctk.CTkToplevel):
-    """补签对话框：为指定条目补打过去某天的背诵打卡。
-    补签后从补签日期重算下次背诵日期。"""
+    """补签对话框：选择历史日期和评分结果"""
     def __init__(self, parent, item, on_confirm_callback):
         super().__init__(parent)
         self.title("补签背诵")
-        self.geometry("420x320")
+        self.geometry("420x450")
         self.item = item
         self.on_confirm_callback = on_confirm_callback
+        self.selected_result = None
 
         ctk.CTkLabel(self, text="补签背诵", font=ctk.CTkFont(size=18, weight="bold")).pack(pady=(15, 5))
-        ctk.CTkLabel(self, text=f"条目：《{item['title']}》").pack(pady=(0, 5))
+        ctk.CTkLabel(self, text=f"条目：《{item['title']}》").pack(pady=(0, 15))
 
-        # 当前状态提示
-        next_review = item["next_review_date"]
-        if isinstance(next_review, str):
-            next_review = date.fromisoformat(next_review)
-        info = f"当前阶段：第{item['current_stage']}次背诵  |  下次背诵：{next_review.isoformat()}"
-        ctk.CTkLabel(self, text=info, text_color="gray").pack(pady=(0, 15))
-
-        # 日期输入
-        ctk.CTkLabel(self, text="补签的背诵日期：").pack(anchor="w", padx=30)
+        ctk.CTkLabel(self, text="补签日期：").pack(anchor="w", padx=30)
         date_frame = ctk.CTkFrame(self, fg_color="transparent")
-        date_frame.pack(fill="x", padx=30, pady=(2, 5))
+        date_frame.pack(fill="x", padx=30, pady=(2, 15))
         today = date.today()
         yesterday = today - timedelta(days=1)
         self.date_entry = ctk.CTkEntry(date_frame, width=150, placeholder_text="YYYY-MM-DD")
@@ -37,10 +30,20 @@ class BackfillReviewDialog(ctk.CTkToplevel):
         ctk.CTkButton(date_frame, text="前天", width=60,
                       command=lambda: self.date_entry.delete(0, "end") or self.date_entry.insert(0, (today - timedelta(days=2)).isoformat())).pack(side="left")
 
-        ctk.CTkLabel(self, text="补签后，下次背诵日期将从该日期起重新计算。",
-                     text_color="gray", font=ctk.CTkFont(size=11)).pack(pady=(5, 15))
+        ctk.CTkLabel(self, text="评分结果：").pack(anchor="w", padx=30)
+        result_frame = ctk.CTkFrame(self, fg_color="transparent")
+        result_frame.pack(fill="x", padx=30, pady=(2, 15))
+        self.result_var = ctk.StringVar(value="perfect")
+        for text, value, color in [("完全正确", "perfect", "#2ecc71"),
+                                     ("基本正确", "mostly_correct", "#3498db"),
+                                     ("部分正确", "partial", "#f39c12"),
+                                     ("记错了", "wrong", "#e74c3c")]:
+            ctk.CTkRadioButton(result_frame, text=text, variable=self.result_var,
+                               value=value, fg_color=color).pack(anchor="w", pady=2)
 
-        # 按钮
+        ctk.CTkLabel(self, text="补签后将从该日期按评分重算间隔",
+                     text_color="gray", font=ctk.CTkFont(size=11)).pack(pady=(0, 15))
+
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(pady=8)
         ctk.CTkButton(btn_frame, text="取消", command=self.destroy, width=90, fg_color="gray").pack(side="left", padx=5)
@@ -61,8 +64,12 @@ class BackfillReviewDialog(ctk.CTkToplevel):
         if review_date > today:
             messagebox.showwarning("提示", "补签日期不能晚于今天", parent=self)
             return
-        if review_date < date.fromisoformat(self.item["cycle_start_date"] if isinstance(self.item["cycle_start_date"], str) else self.item["cycle_start_date"].isoformat()):
-            messagebox.showwarning("提示", "补签日期不能早于该条目的开始日期", parent=self)
-            return
-        self.on_confirm_callback(self.item, review_date)
+        start_date = self.item.get("created_date")
+        if start_date:
+            if isinstance(start_date, str):
+                start_date = date.fromisoformat(start_date)
+            if review_date < start_date:
+                messagebox.showwarning("提示", "补签日期不能早于条目创建日期", parent=self)
+                return
+        self.on_confirm_callback(self.item, review_date, self.result_var.get())
         self.destroy()
