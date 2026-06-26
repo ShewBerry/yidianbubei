@@ -218,5 +218,47 @@ class Database:
             "SELECT DISTINCT item_id FROM review_logs WHERE review_date=?", (today_str,))
         return {row[0] for row in cursor.fetchall()}
 
+    def get_status_counts(self) -> dict:
+        """返回各状态的条目数"""
+        cursor = self.conn.execute(
+            "SELECT status, COUNT(*) FROM items GROUP BY status")
+        counts = {"learning": 0, "mastered": 0, "archived": 0}
+        for row in cursor.fetchall():
+            counts[row[0]] = row[1]
+        return counts
+
+    def get_perfect_count_in_range(self, start_date, end_date) -> int:
+        """返回日期范围内 perfect 评分的数量"""
+        sd = start_date.isoformat() if hasattr(start_date, "isoformat") else start_date
+        ed = end_date.isoformat() if hasattr(end_date, "isoformat") else end_date
+        cursor = self.conn.execute(
+            "SELECT COUNT(*) FROM review_logs WHERE result='perfect' AND review_date >= ? AND review_date <= ?",
+            (sd, ed))
+        return cursor.fetchone()[0]
+
+    def get_category_progress(self) -> list:
+        """返回每个顶层分类（含子孙）的进度统计"""
+        top_cats = self.conn.execute(
+            "SELECT id, name FROM categories WHERE parent_id IS NULL ORDER BY name").fetchall()
+        result = []
+        for cat_id, cat_name in top_cats:
+            descendant_ids = self.get_category_descendant_ids(cat_id)
+            if not descendant_ids:
+                result.append({"id": cat_id, "name": cat_name, "total": 0,
+                               "learning": 0, "mastered": 0, "archived": 0})
+                continue
+            placeholders = ",".join("?" * len(descendant_ids))
+            cursor = self.conn.execute(
+                f"""SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status='learning' THEN 1 ELSE 0 END) as learning,
+                    SUM(CASE WHEN status='mastered' THEN 1 ELSE 0 END) as mastered,
+                    SUM(CASE WHEN status='archived' THEN 1 ELSE 0 END) as archived
+                    FROM items WHERE category_id IN ({placeholders})""", descendant_ids)
+            row = cursor.fetchone()
+            result.append({"id": cat_id, "name": cat_name, "total": row[0],
+                           "learning": row[1] or 0, "mastered": row[2] or 0, "archived": row[3] or 0})
+        return result
+
     def close(self):
         self.conn.close()

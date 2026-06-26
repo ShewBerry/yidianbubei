@@ -191,3 +191,52 @@ def test_get_today_reviewed_item_ids(db):
     # 昨日的查询应返回 id2
     reviewed_yesterday = db.get_today_reviewed_item_ids(yesterday)
     assert reviewed_yesterday == {id2}
+
+
+def test_get_status_counts(db):
+    """测试状态计数"""
+    today = date(2026, 6, 26)
+    db.create_item("学习1", "内容", today, today, status="learning")
+    db.create_item("学习2", "内容", today, today, status="learning")
+    db.create_item("掌握1", "内容", today, today, status="mastered")
+    db.create_item("归档1", "内容", today, today, status="archived")
+    counts = db.get_status_counts()
+    assert counts["learning"] == 2
+    assert counts["mastered"] == 1
+    assert counts["archived"] == 1
+
+
+def test_get_perfect_count_in_range(db):
+    """测试日期范围内的 perfect 计数"""
+    today = date(2026, 6, 26)
+    yesterday = today - timedelta(days=1)
+    item_id = db.create_item("条目1", "内容", today, today)
+    db.log_review(item_id, today, 1, "perfect", 1)
+    db.log_review(item_id, yesterday, 1, "mostly_correct", 0)
+    # 今日 perfect 数
+    assert db.get_perfect_count_in_range(today, today) == 1
+    # 昨日 perfect 数
+    assert db.get_perfect_count_in_range(yesterday, yesterday) == 0
+    # 两天合计 perfect 数
+    assert db.get_perfect_count_in_range(yesterday, today) == 1
+
+
+def test_get_category_progress(db):
+    """测试分类进度统计（含子孙分类）"""
+    today = date(2026, 6, 26)
+    # 顶层分类：语文
+    cat_id = db.create_category("语文", parent_id=None)
+    sub_id = db.create_category("唐诗", parent_id=cat_id)
+    # 语文分类下：1个learning, 1个mastered
+    db.create_item("静夜思", "内容", today, today, status="learning", category_id=cat_id)
+    db.create_item("春晓", "内容", today, today, status="mastered", category_id=sub_id)
+    # 未分类条目不计入任何分类进度
+    db.create_item("无分类", "内容", today, today, status="learning")
+
+    progress = db.get_category_progress()
+    assert len(progress) == 1
+    assert progress[0]["name"] == "语文"
+    assert progress[0]["total"] == 2  # 含子分类的条目
+    assert progress[0]["learning"] == 1
+    assert progress[0]["mastered"] == 1
+    assert progress[0]["archived"] == 0
