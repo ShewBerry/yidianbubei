@@ -8,3 +8,5 @@ venv/
 build/
 dist/
 *.spec
+# 编译后的 exe（不进版本库）
+*.exe
