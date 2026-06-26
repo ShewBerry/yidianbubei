@@ -12,7 +12,6 @@ class BackfillReviewDialog(ctk.CTkToplevel):
         self.geometry("420x450")
         self.item = item
         self.on_confirm_callback = on_confirm_callback
-        self.selected_result = None
 
         ctk.CTkLabel(self, text="补签背诵", font=ctk.CTkFont(size=18, weight="bold")).pack(pady=(15, 5))
         ctk.CTkLabel(self, text=f"条目：《{item['title']}》").pack(pady=(0, 15))
