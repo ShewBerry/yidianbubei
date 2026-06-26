@@ -41,30 +41,39 @@ class ReviewPanel(ctk.CTkFrame):
         self.refresh()
 
     def refresh(self):
-        # 若队列中仍有条目（背诵进行中），仅重新渲染当前卡片，
-        # 不从数据库重建队列——避免 on_data_changed 回调导致重背条目丢失
-        # （重背条目的 next_review_date 已更新为未来日期，不在 get_due_items 中）
-        if self.queue:
-            self._render_current_card()
-            return
+        """刷新今日队列。
 
-        for widget in self.card_frame.winfo_children():
-            widget.destroy()
-
+        - 队列非空时（背诵进行中）：只追加新出现的 due 条目到末尾，不重建队列，
+          避免重背条目丢失或当前背诵条目跳变。
+        - 队列为空时：从数据库完整重建队列。
+        """
         today = date.today()
         self.db.bring_overdue_to_today(today)
         due_items = self.db.get_due_items(today)
         reviewed_ids = self.db.get_today_reviewed_item_ids(today)
 
-        self.queue = []
-        for item in due_items:
-            is_retest = item["id"] in reviewed_ids
-            self.queue.append({"item": item, "is_retest": is_retest})
-        self.completed_count = 0
-        self.total_count = len(self.queue)
-
-        self._update_progress()
-        self._render_current_card()
+        if self.queue:
+            # 背诵进行中：只追加新条目，不重建队列
+            existing_ids = {q["item"]["id"] for q in self.queue}
+            for item in due_items:
+                if item["id"] not in existing_ids:
+                    is_retest = item["id"] in reviewed_ids
+                    self.queue.append({"item": item, "is_retest": is_retest})
+            self.total_count = len(self.queue) + self.completed_count
+            self._update_progress()
+            self._render_current_card()
+        else:
+            # 队列为空：完整重建
+            for widget in self.card_frame.winfo_children():
+                widget.destroy()
+            self.queue = []
+            for item in due_items:
+                is_retest = item["id"] in reviewed_ids
+                self.queue.append({"item": item, "is_retest": is_retest})
+            self.completed_count = 0
+            self.total_count = len(self.queue)
+            self._update_progress()
+            self._render_current_card()
 
     def _update_progress(self):
         if self.total_count == 0:
