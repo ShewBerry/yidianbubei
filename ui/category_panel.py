@@ -1,6 +1,9 @@
 import customtkinter as ctk
 from tkinter import ttk, messagebox, simpledialog
 from datetime import date
+from ui.theme import (title_font, heading_font, body_font,
+                      COLOR_DANGER, COLOR_DANGER_HOVER, COLOR_ROUND2, COLOR_ROUND2_HOVER,
+                      COLOR_NEUTRAL, COLOR_NEUTRAL_HOVER, COLOR_TEXT_SECONDARY)
 
 
 class CategoryPanel(ctk.CTkFrame):
