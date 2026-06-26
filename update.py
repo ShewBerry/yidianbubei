@@ -90,9 +90,27 @@ def main():
             ["taskkill", "/IM", f"{APP_NAME}.exe", "/F"],
             capture_output=True, text=True
         )
-        print("已关闭旧进程（如存在）。", flush=True)
+        print("已发送关闭指令。", flush=True)
     except Exception:
         print("无运行中的旧进程。", flush=True)
+
+    # 等待进程真正退出，最多等5秒（文件句柄释放有延迟）
+    import time
+    for i in range(10):
+        time.sleep(0.5)
+        try:
+            # 尝试以写模式打开目标文件，成功则说明进程已释放
+            with open(INSTALL_DIR / f"{APP_NAME}.exe", "a"):
+                pass
+            break
+        except PermissionError:
+            if i < 9:
+                continue
+            else:
+                raise RuntimeError(
+                    f"无法替换 {APP_NAME}.exe：文件仍被占用。\n"
+                    "请手动关闭软件后重试 python update.py"
+                )
 
     # Step 4: 安装到固定目录
     step(4, f"安装到 {INSTALL_DIR} ...")
