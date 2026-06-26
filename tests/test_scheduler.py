@@ -220,3 +220,76 @@ def test_process_review_backfill_wrong():
     assert result["interval"] == 1
     assert result["next_review_date"] == review_date + timedelta(days=1)
     assert result["requeue_today"] is False
+
+
+def test_process_review_partial_cap_first_partial():
+    """同日第1次 partial（today_partial_count=0）：正常回退 -1"""
+    s = Scheduler()
+    today = date(2026, 6, 26)
+    item = {"round": 1, "interval": 13, "consecutive_correct": 6, "status": "learning"}
+    result = s.process_review(item, today, "partial", is_retest=False, today_partial_count=0)
+    assert result["consecutive_correct"] == 5  # 6-1
+    assert result["interval"] == 8
+    assert result["next_review_date"] == today
+    assert result["requeue_today"] is True
+
+
+def test_process_review_partial_cap_second_partial():
+    """同日第2次 partial（today_partial_count=1）：仍回退 -1，累计 -2"""
+    s = Scheduler()
+    today = date(2026, 6, 26)
+    item = {"round": 1, "interval": 8, "consecutive_correct": 5, "status": "learning"}
+    result = s.process_review(item, today, "partial", is_retest=False, today_partial_count=1)
+    assert result["consecutive_correct"] == 4  # 5-1
+    assert result["interval"] == 5  # ROUND1_INTERVALS[3]
+    assert result["next_review_date"] == today
+    assert result["requeue_today"] is True
+
+
+def test_process_review_partial_cap_reached_no_more_regression():
+    """同日第3次 partial（today_partial_count=2）：达到上限，不再回退，但当日仍需重背"""
+    s = Scheduler()
+    today = date(2026, 6, 26)
+    item = {"round": 1, "interval": 5, "consecutive_correct": 4, "status": "learning"}
+    result = s.process_review(item, today, "partial", is_retest=False, today_partial_count=2)
+    assert result["consecutive_correct"] == 4  # 保持不变，不再回退
+    assert result["interval"] == 5  # 保持不变
+    assert result["next_review_date"] == today  # 仍需重背
+    assert result["requeue_today"] is True
+
+
+def test_process_review_partial_cap_beyond_limit_stays():
+    """同日第4次 partial（today_partial_count=3）：超过上限，依然不回退"""
+    s = Scheduler()
+    today = date(2026, 6, 26)
+    item = {"round": 1, "interval": 5, "consecutive_correct": 4, "status": "learning"}
+    result = s.process_review(item, today, "partial", is_retest=False, today_partial_count=3)
+    assert result["consecutive_correct"] == 4
+    assert result["interval"] == 5
+    assert result["next_review_date"] == today
+    assert result["requeue_today"] is True
+
+
+def test_process_review_partial_cap_at_zero_no_negative():
+    """同日多次 partial 且 consecutive_correct 已为 0：不会变为负数"""
+    s = Scheduler()
+    today = date(2026, 6, 26)
+    item = {"round": 1, "interval": 1, "consecutive_correct": 0, "status": "learning"}
+    result = s.process_review(item, today, "partial", is_retest=False, today_partial_count=1)
+    assert result["consecutive_correct"] == 0
+    assert result["interval"] == 1
+    assert result["next_review_date"] == today
+    assert result["requeue_today"] is True
+
+
+def test_process_review_partial_cap_backfill_applies():
+    """补签 partial 也应遵循上限：达到上限后不回退，但按补签日+interval 计算"""
+    s = Scheduler()
+    review_date = date(2026, 6, 20)
+    item = {"round": 1, "interval": 5, "consecutive_correct": 4, "status": "learning"}
+    result = s.process_review(item, review_date, "partial",
+                              is_retest=False, is_backfill=True, today_partial_count=2)
+    assert result["consecutive_correct"] == 4  # 上限，不回退
+    assert result["interval"] == 5
+    assert result["next_review_date"] == review_date + timedelta(days=5)
+    assert result["requeue_today"] is False

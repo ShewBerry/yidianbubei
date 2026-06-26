@@ -218,6 +218,14 @@ class Database:
             "SELECT DISTINCT item_id FROM review_logs WHERE review_date=?", (today_str,))
         return {row[0] for row in cursor.fetchall()}
 
+    def get_today_partial_count(self, item_id: int, today) -> int:
+        """返回今日某条目已评分 partial 的次数"""
+        today_str = today.isoformat() if hasattr(today, "isoformat") else today
+        cursor = self.conn.execute(
+            "SELECT COUNT(*) FROM review_logs WHERE review_date=? AND item_id=? AND result='partial'",
+            (today_str, item_id))
+        return cursor.fetchone()[0]
+
     def get_status_counts(self) -> dict:
         """返回各状态的条目数"""
         cursor = self.conn.execute(

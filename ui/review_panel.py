@@ -194,8 +194,15 @@ class ReviewPanel(ctk.CTkFrame):
         item = current["item"]
         today = date.today()
 
+        # partial 需查询今日已回退次数以应用上限
+        today_partial_count = 0
+        if result == "partial":
+            today_partial_count = self.db.get_today_partial_count(item["id"], today)
+
         sched_result = self.scheduler.process_review(
-            item, today, result, is_retest=current["is_retest"])
+            item, today, result,
+            is_retest=current["is_retest"],
+            today_partial_count=today_partial_count)
 
         # 更新数据库
         update_fields = {
