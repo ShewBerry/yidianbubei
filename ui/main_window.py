@@ -1,11 +1,11 @@
 import customtkinter as ctk
-from datetime import date
 from database import Database
 from scheduler import Scheduler
 from ui.review_panel import ReviewPanel
 from ui.list_panels import AllItemsPanel, MasteredPanel
 from ui.add_dialog import AddItemDialog
 from ui.category_panel import CategoryPanel
+from ui.stats_panel import StatsPanel
 
 
 class MainWindow(ctk.CTk):
@@ -33,6 +33,7 @@ class MainWindow(ctk.CTk):
         self.tab_all = self.tabview.add("全部条目")
         self.tab_mastered = self.tabview.add("已掌握")
         self.tab_category = self.tabview.add("分类管理")
+        self.tab_stats = self.tabview.add("统计")
 
         self.review_panel = ReviewPanel(self.tab_today, self.db, self.scheduler,
                                         on_data_changed=self._refresh_all)
@@ -48,18 +49,20 @@ class MainWindow(ctk.CTk):
                                             on_category_selected=self._on_category_selected)
         self.category_panel.pack(fill="both", expand=True)
 
+        self.stats_panel = StatsPanel(self.tab_stats, self.db)
+        self.stats_panel.pack(fill="both", expand=True)
+
     def _open_add_dialog(self):
         AddItemDialog(self, self.db, self._handle_add_item)
 
     def _handle_add_item(self, title: str, content: str, start_date, category_id):
-        today = date.today()
-        schedule = self.scheduler.schedule_new_item(today, start_date=start_date)
+        schedule = self.scheduler.schedule_new_item(start_date)
         self.db.create_item(
             title, content, start_date, schedule["next_review_date"],
-            current_stage=schedule["current_stage"],
-            cycle_type=schedule["cycle_type"],
-            cycle_start_date=schedule["cycle_start_date"],
             status=schedule["status"],
+            round=schedule["round"],
+            interval=schedule["interval"],
+            consecutive_correct=schedule["consecutive_correct"],
             category_id=category_id
         )
         self._refresh_all()
@@ -76,3 +79,4 @@ class MainWindow(ctk.CTk):
         self.all_items_panel.refresh()
         self.mastered_panel.refresh()
         self.category_panel.refresh()
+        self.stats_panel.refresh()
