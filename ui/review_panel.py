@@ -134,8 +134,10 @@ class ReviewPanel(ctk.CTkFrame):
 
         if current.get("show_content"):
             # 可标记+可缩放内容框
+            # 不用 expand=True：否则内容框会占满 card 剩余空间，
+            # 把笔记框和评分按钮挤出可见区域（窗口非最大化时尤其明显）
             self.markable_box = MarkableTextbox(card, self.db, item, read_only_marks=False)
-            self.markable_box.pack(fill="both", expand=True, padx=20, pady=5)
+            self.markable_box.pack(fill="x", padx=20, pady=5)
 
             # 条目笔记
             self.notes_box = NotesBox(card, self.db, item["id"],
