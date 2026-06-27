@@ -1,4 +1,5 @@
 # ui/review_panel.py
+import tkinter as tk
 import customtkinter as ctk
 from datetime import date
 from scheduler import Scheduler
@@ -133,11 +134,7 @@ class ReviewPanel(ctk.CTkFrame):
                      font=body_font()).pack(side="right")
 
         if current.get("show_content"):
-            # 布局顺序关键：底部元素先 pack(side="bottom")，再让内容框 expand 填充中间。
-            # 这样无论窗口多小，评分按钮和笔记始终固定在底部可见，内容框自适应剩余空间。
-            # 用户通过拖动窗口边缘即可自由调整内容框高度，无需固定高度按钮。
-
-            # 评分按钮（最底，先 pack）
+            # 评分按钮固定底部（先 pack side=bottom）
             btn_frame = ctk.CTkFrame(card, fg_color="transparent")
             btn_frame.pack(side="bottom", fill="x", padx=20, pady=(5, 15))
 
@@ -158,14 +155,22 @@ class ReviewPanel(ctk.CTkFrame):
                           font=heading_font(),
                           command=lambda: self._handle_review("wrong")).pack(side="left", padx=4, expand=True)
 
-            # 条目笔记（次底）
-            self.notes_box = NotesBox(card, self.db, item["id"],
-                                       current_notes=item.get("notes", ""), height=70)
-            self.notes_box.pack(side="bottom", fill="x", padx=20, pady=(5, 5))
+            # 用 PanedWindow 实现可拖拽 sash：内容框（上）与笔记（下）之间有分隔条，
+            # 鼠标放在分隔条上会变成上下箭头光标，按下拖动即可自由调整内容框高度，
+            # 无需拖动窗口边缘。评分按钮固定底部不受影响。
+            self.paned = tk.PanedWindow(card, orient="vertical", sashwidth=8,
+                                         sashrelief="flat", bg="gray60",
+                                         borderwidth=0, handlesize=0, sashpad=0)
+            self.paned.pack(fill="both", expand=True, padx=20, pady=5)
 
-            # 可标记+可缩放内容框（填充剩余空间，跟随窗口大小伸缩）
-            self.markable_box = MarkableTextbox(card, self.db, item, read_only_marks=False)
-            self.markable_box.pack(fill="both", expand=True, padx=20, pady=5)
+            # 上：可标记+可缩放内容框
+            self.markable_box = MarkableTextbox(self.paned, self.db, item, read_only_marks=False)
+            self.paned.add(self.markable_box, minsize=120, stretch="middle")
+
+            # 下：条目笔记
+            self.notes_box = NotesBox(self.paned, self.db, item["id"],
+                                       current_notes=item.get("notes", ""), height=70)
+            self.paned.add(self.notes_box, minsize=60)
         else:
             ctk.CTkLabel(card, text="先回忆内容，再点下方按钮查看正文",
                          text_color=COLOR_TEXT_SECONDARY, font=body_font()).pack(pady=40)

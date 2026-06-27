@@ -17,6 +17,9 @@ class MainWindow(ctk.CTk):
 
         self.title("一点不背")
         self.geometry("900x650")
+        # 显式启用窗口缩放（允许拖动窗口边缘调整大小）
+        self.resizable(True, True)
+        self.minsize(700, 450)
 
         # 顶部栏
         top_bar = ctk.CTkFrame(self)
