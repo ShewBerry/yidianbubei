@@ -158,6 +158,7 @@ class ReviewPanel(ctk.CTkFrame):
             # 用 PanedWindow 实现可拖拽 sash：内容框（上）与笔记（下）之间有分隔条，
             # 鼠标放在分隔条上会变成上下箭头光标，按下拖动即可自由调整内容框高度，
             # 无需拖动窗口边缘。评分按钮固定底部不受影响。
+            # sash 位置持久化到 settings：每次展开内容后恢复上次拖拽的位置。
             self.paned = tk.PanedWindow(card, orient="vertical", sashwidth=8,
                                          sashrelief="flat", bg="gray60",
                                          borderwidth=0, handlesize=0, sashpad=0)
@@ -171,6 +172,9 @@ class ReviewPanel(ctk.CTkFrame):
             self.notes_box = NotesBox(self.paned, self.db, item["id"],
                                        current_notes=item.get("notes", ""), height=70)
             self.paned.add(self.notes_box, minsize=60)
+
+            # 恢复上次拖拽的 sash 位置（必须等窗口实际渲染后才能设置）
+            self._restore_sash_position()
         else:
             ctk.CTkLabel(card, text="先回忆内容，再点下方按钮查看正文",
                          text_color=COLOR_TEXT_SECONDARY, font=body_font()).pack(pady=40)
@@ -178,6 +182,33 @@ class ReviewPanel(ctk.CTkFrame):
                           fg_color=PRIMARY, hover_color=COLOR_PERFECT_HOVER,
                           font=heading_font(),
                           command=self._show_content).pack(pady=10)
+
+    def _restore_sash_position(self):
+        """展开内容后恢复上次拖拽的 sash 位置。
+        PanedWindow 的 sash_pos 必须在窗口实际渲染后才能设置，用 after 延迟。
+        存的是内容框的高度（像素），默认 350。
+        同时绑定 sash 拖拽释放事件，自动保存新位置。
+        """
+        saved_height = int(self.db.get_setting("content_paned_height", "350"))
+        def _apply():
+            try:
+                # 限制不超过 paned 当前高度-100（给笔记留空间）
+                max_h = max(150, self.paned.winfo_height() - 100)
+                h = min(saved_height, max_h)
+                self.paned.sash_place(0, 0, h)
+            except Exception:
+                pass  # 窗口未就绪时静默跳过
+        self.after(50, _apply)
+        # 拖拽 sash 释放后自动保存新位置
+        self.paned.bind("<ButtonRelease-1>", lambda _e: self._save_sash_position(), add="+")
+
+    def _save_sash_position(self):
+        """保存当前 sash 位置到 settings"""
+        try:
+            h = self.paned.sash_coord(0)[1]  # 第0个sash的y坐标=内容框高度
+            self.db.set_setting("content_paned_height", str(h))
+        except Exception:
+            pass
 
     def _render_complete_state(self):
         """今日背诵完成的庆祝态"""

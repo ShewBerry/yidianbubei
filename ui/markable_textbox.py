@@ -51,8 +51,8 @@ class MarkableTextbox(ctk.CTkFrame):
                       fg_color=COLOR_NEUTRAL, hover_color=COLOR_NEUTRAL_HOVER,
                       font=small_font(), command=self._increase_font).pack(side="right", padx=2)
 
-        # 内容文本框：设一个较小初始高度作为最小值，实际由父容器 expand 控制填充
-        self.textbox = ctk.CTkTextbox(self, height=150,
+        # 内容文本框：初始高度作为最小值，实际由父容器 PanedWindow 的 sash 控制并持久化
+        self.textbox = ctk.CTkTextbox(self, height=300,
                                        font=ctk.CTkFont(size=self.font_size))
         self.textbox.pack(fill="both", expand=True)
         self.textbox.insert("1.0", item["content"])
