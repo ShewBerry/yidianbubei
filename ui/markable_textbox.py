@@ -77,16 +77,20 @@ class MarkableTextbox(ctk.CTkFrame):
         return self.textbox.index(f"1.0 + {pos} chars")
 
     def _tkindex_to_pos(self, index: str) -> int:
-        """tkinter Text index → 字符偏移"""
-        start = self.textbox.index("1.0")
-        # 临时启用以计算（只读模式下 disabled 无法 count）
-        was_disabled = str(self.textbox.cget("state")) == "disabled"
-        if was_disabled:
-            self.textbox.configure(state="normal")
-        count = self.textbox.count(start, index, "chars")
-        if was_disabled:
-            self.textbox.configure(state="disabled")
-        return count[0] if count else 0
+        """tkinter Text index ('line.char') → 全局字符偏移。
+        不依赖 Text.count（CTkTextbox 未代理该方法），改为逐行累加长度。
+        """
+        line_str, char_str = index.split(".")
+        line_num = int(line_str)
+        char_num = int(char_str)
+        if line_num == 1:
+            return char_num
+        pos = 0
+        for l in range(1, line_num):
+            end_idx = self.textbox.index(f"{l}.end")
+            line_len = int(end_idx.split(".")[1])
+            pos += line_len + 1  # +1 为换行符
+        return pos + char_num
 
     # ===== 高亮应用 =====
     def _apply_marks(self):
@@ -106,14 +110,17 @@ class MarkableTextbox(ctk.CTkFrame):
 
     # ===== 标记操作 =====
     def _get_selection_range(self):
-        """返回 (start_pos, end_pos) 或 None（无选中）"""
+        """返回 (start_pos, end_pos) 或 None（无选中）。
+        sel.first/sel.last 在无选中时抛 TclError，仅捕获该异常。
+        """
         try:
             start_idx = self.textbox.index("sel.first")
             end_idx = self.textbox.index("sel.last")
-        except Exception:
-            return None
-        if not start_idx or not end_idx:
-            return None
+        except Exception as e:
+            # 无选中时 tkinter 抛 _tkinter.TclError；其他异常不应被吞掉
+            if "TclError" in type(e).__name__:
+                return None
+            raise
         return self._tkindex_to_pos(start_idx), self._tkindex_to_pos(end_idx)
 
     def _add_mark(self, mark_type: str):
