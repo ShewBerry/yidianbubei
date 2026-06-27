@@ -71,16 +71,18 @@ def test_process_review_mostly_correct_retest():
     assert result["requeue_today"] is True
 
 def test_process_review_partial_normal():
+    """部分正确：进度不变（0），但仍需重背"""
     s = Scheduler()
     today = date(2026, 6, 26)
     item = {"round": 1, "interval": 13, "consecutive_correct": 6, "status": "learning"}
     result = s.process_review(item, today, "partial", is_retest=False)
-    assert result["consecutive_correct"] == 5  # 6-1
-    assert result["interval"] == 8  # ROUND1_INTERVALS[4]
+    assert result["consecutive_correct"] == 6  # 不变
+    assert result["interval"] == 13  # ROUND1_INTERVALS[5]，保持不变
     assert result["next_review_date"] == today  # 重背时保持今天，关闭应用后不丢失
     assert result["requeue_today"] is True
 
 def test_process_review_partial_at_zero():
+    """部分正确且已在0：进度不变，仍为0"""
     s = Scheduler()
     today = date(2026, 6, 26)
     item = {"round": 1, "interval": 1, "consecutive_correct": 0, "status": "learning"}
@@ -175,13 +177,13 @@ def test_process_review_mostly_correct_completes_round1():
     assert result["requeue_today"] is False  # 完成后强制不重背
 
 def test_process_review_partial_round2():
-    """二轮的 partial 应使用 ROUND2_INTERVALS 回退"""
+    """二轮的部分正确：进度不变，仍需重背"""
     s = Scheduler()
     today = date(2026, 6, 26)
     item = {"round": 2, "interval": 7, "consecutive_correct": 2, "status": "learning"}
     result = s.process_review(item, today, "partial", is_retest=False)
-    assert result["consecutive_correct"] == 1  # 2-1=1
-    assert result["interval"] == 3  # ROUND2_INTERVALS[0]
+    assert result["consecutive_correct"] == 2  # 不变
+    assert result["interval"] == 7  # ROUND2_INTERVALS[1]，保持不变
     assert result["next_review_date"] == today  # 重背时保持今天，关闭应用后不丢失
     assert result["requeue_today"] is True
 
@@ -199,14 +201,14 @@ def test_process_review_backfill_mostly_correct():
 
 
 def test_process_review_backfill_partial():
-    """补签部分正确：不重背，next_review_date = 补签日 + interval"""
+    """补签部分正确：进度不变，不重背，next_review_date = 补签日 + interval"""
     s = Scheduler()
     review_date = date(2026, 6, 20)
     item = {"round": 1, "interval": 13, "consecutive_correct": 6, "status": "learning"}
     result = s.process_review(item, review_date, "partial", is_retest=False, is_backfill=True)
-    assert result["consecutive_correct"] == 5  # 6-1
-    assert result["interval"] == 8  # ROUND1_INTERVALS[4]
-    assert result["next_review_date"] == review_date + timedelta(days=8)
+    assert result["consecutive_correct"] == 6  # 不变
+    assert result["interval"] == 13  # ROUND1_INTERVALS[5]，保持不变
+    assert result["next_review_date"] == review_date + timedelta(days=13)
     assert result["requeue_today"] is False
 
 
@@ -222,73 +224,73 @@ def test_process_review_backfill_wrong():
     assert result["requeue_today"] is False
 
 
-def test_process_review_partial_cap_first_partial():
-    """同日第1次 partial（today_partial_count=0）：正常回退 -1"""
+def test_process_review_forgotten_cap_first():
+    """同日第1次较多遗忘（today_forgotten_count=0）：正常回退 -1"""
     s = Scheduler()
     today = date(2026, 6, 26)
     item = {"round": 1, "interval": 13, "consecutive_correct": 6, "status": "learning"}
-    result = s.process_review(item, today, "partial", is_retest=False, today_partial_count=0)
+    result = s.process_review(item, today, "mostly_forgotten", is_retest=False, today_forgotten_count=0)
     assert result["consecutive_correct"] == 5  # 6-1
     assert result["interval"] == 8
     assert result["next_review_date"] == today
     assert result["requeue_today"] is True
 
 
-def test_process_review_partial_cap_second_partial():
-    """同日第2次 partial（today_partial_count=1）：仍回退 -1，累计 -2"""
+def test_process_review_forgotten_cap_second():
+    """同日第2次较多遗忘（today_forgotten_count=1）：仍回退 -1，累计 -2"""
     s = Scheduler()
     today = date(2026, 6, 26)
     item = {"round": 1, "interval": 8, "consecutive_correct": 5, "status": "learning"}
-    result = s.process_review(item, today, "partial", is_retest=False, today_partial_count=1)
+    result = s.process_review(item, today, "mostly_forgotten", is_retest=False, today_forgotten_count=1)
     assert result["consecutive_correct"] == 4  # 5-1
     assert result["interval"] == 5  # ROUND1_INTERVALS[3]
     assert result["next_review_date"] == today
     assert result["requeue_today"] is True
 
 
-def test_process_review_partial_cap_reached_no_more_regression():
-    """同日第3次 partial（today_partial_count=2）：达到上限，不再回退，但当日仍需重背"""
+def test_process_review_forgotten_cap_reached():
+    """同日第3次较多遗忘（today_forgotten_count=2）：达到上限，不再回退，但当日仍需重背"""
     s = Scheduler()
     today = date(2026, 6, 26)
     item = {"round": 1, "interval": 5, "consecutive_correct": 4, "status": "learning"}
-    result = s.process_review(item, today, "partial", is_retest=False, today_partial_count=2)
+    result = s.process_review(item, today, "mostly_forgotten", is_retest=False, today_forgotten_count=2)
     assert result["consecutive_correct"] == 4  # 保持不变，不再回退
     assert result["interval"] == 5  # 保持不变
     assert result["next_review_date"] == today  # 仍需重背
     assert result["requeue_today"] is True
 
 
-def test_process_review_partial_cap_beyond_limit_stays():
-    """同日第4次 partial（today_partial_count=3）：超过上限，依然不回退"""
+def test_process_review_forgotten_cap_beyond():
+    """同日第4次较多遗忘（today_forgotten_count=3）：超过上限，依然不回退"""
     s = Scheduler()
     today = date(2026, 6, 26)
     item = {"round": 1, "interval": 5, "consecutive_correct": 4, "status": "learning"}
-    result = s.process_review(item, today, "partial", is_retest=False, today_partial_count=3)
+    result = s.process_review(item, today, "mostly_forgotten", is_retest=False, today_forgotten_count=3)
     assert result["consecutive_correct"] == 4
     assert result["interval"] == 5
     assert result["next_review_date"] == today
     assert result["requeue_today"] is True
 
 
-def test_process_review_partial_cap_at_zero_no_negative():
-    """同日多次 partial 且 consecutive_correct 已为 0：不会变为负数"""
+def test_process_review_forgotten_cap_at_zero():
+    """同日多次较多遗忘且 consecutive_correct 已为 0：不会变为负数"""
     s = Scheduler()
     today = date(2026, 6, 26)
     item = {"round": 1, "interval": 1, "consecutive_correct": 0, "status": "learning"}
-    result = s.process_review(item, today, "partial", is_retest=False, today_partial_count=1)
+    result = s.process_review(item, today, "mostly_forgotten", is_retest=False, today_forgotten_count=1)
     assert result["consecutive_correct"] == 0
     assert result["interval"] == 1
     assert result["next_review_date"] == today
     assert result["requeue_today"] is True
 
 
-def test_process_review_partial_cap_backfill_applies():
-    """补签 partial 也应遵循上限：达到上限后不回退，但按补签日+interval 计算"""
+def test_process_review_forgotten_cap_backfill():
+    """补签较多遗忘也应遵循上限：达到上限后不回退，但按补签日+interval 计算"""
     s = Scheduler()
     review_date = date(2026, 6, 20)
     item = {"round": 1, "interval": 5, "consecutive_correct": 4, "status": "learning"}
-    result = s.process_review(item, review_date, "partial",
-                              is_retest=False, is_backfill=True, today_partial_count=2)
+    result = s.process_review(item, review_date, "mostly_forgotten",
+                              is_retest=False, is_backfill=True, today_forgotten_count=2)
     assert result["consecutive_correct"] == 4  # 上限，不回退
     assert result["interval"] == 5
     assert result["next_review_date"] == review_date + timedelta(days=5)

@@ -36,6 +36,7 @@ class BackfillReviewDialog(ctk.CTkToplevel):
         for text, value, color in [("完全正确", "perfect", "#2ecc71"),
                                      ("基本正确", "mostly_correct", "#3498db"),
                                      ("部分正确", "partial", "#f39c12"),
+                                     ("较多遗忘", "mostly_forgotten", "#cd6e4a"),
                                      ("记错了", "wrong", "#e74c3c")]:
             ctk.CTkRadioButton(result_frame, text=text, variable=self.result_var,
                                value=value, fg_color=color).pack(anchor="w", pady=2)

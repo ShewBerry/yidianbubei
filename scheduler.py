@@ -18,13 +18,20 @@ class Scheduler:
 
     def process_review(self, item: dict, today: date, result: str,
                        is_retest: bool = False, is_backfill: bool = False,
-                       today_partial_count: int = 0) -> dict:
-        """处理用户的4级评分反馈，返回新的调度状态。
+                       today_forgotten_count: int = 0) -> dict:
+        """处理用户的5级评分反馈，返回新的调度状态。
+
+        评分等级（从好到差）：
+          perfect        完全正确  +1
+          mostly_correct 基本正确  +1（重背时不递增，仅重背）
+          partial        部分正确   0（进度不变，但仍需重背）
+          mostly_forgotten 较多遗忘 -1（带回退上限，同日最多累计 -2）
+          wrong          记错了    重置为0
 
         is_retest: True 表示该条目今日非首次出现（重背评分）。
         is_backfill: True 表示补签历史日期。补签时不重背，next_review_date 按补签日+间隔计算。
-        today_partial_count: 今日该条目已评分 partial 的次数（不含本次）。
-            同一日内 partial 累计回退上限为 -2，达到上限后不再回退，避免无限重背。
+        today_forgotten_count: 今日该条目已评分 mostly_forgotten 的次数（不含本次）。
+            同一日内较多遗忘累计回退上限为 -2，达到上限后不再回退，避免无限重背。
         返回值含 requeue_today 字段：True 表示需追加到今日队列末尾。
         next_review_date 为 None 表示不更新数据库（用于基本正确重背）。
         next_review_date 为空字符串 "" 表示已完成轮次、不再调度。
@@ -53,9 +60,15 @@ class Scheduler:
                                           requeue_today=True, is_backfill=is_backfill)
 
         elif result == "partial":
-            # 同一日内 partial 累计回退上限为 -2（最多执行两次 -1）
+            # 部分正确：进度不变（0），当日仍需重背
+            new_correct = current_correct
+            return self._build_result(item["round"], round_intervals, new_correct, today,
+                                      requeue_today=True, is_backfill=is_backfill)
+
+        elif result == "mostly_forgotten":
+            # 较多遗忘：-1，同日内累计回退上限为 -2（最多执行两次 -1）
             # 达到上限后保持当前进度不再回退，但当日仍需重背
-            if today_partial_count >= 2:
+            if today_forgotten_count >= 2:
                 new_correct = current_correct  # 不再回退
             else:
                 new_correct = max(0, current_correct - 1)

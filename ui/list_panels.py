@@ -154,13 +154,13 @@ class AllItemsPanel(ctk.CTkFrame):
 
     def _handle_backfill(self, item, review_date, result):
         """补签：用历史日期和评分结果重算状态，不重背，按补签日+间隔计算"""
-        # partial 需查询补签当日已回退次数以应用上限（与今日背诵保持一致）
-        today_partial_count = 0
-        if result == "partial":
-            today_partial_count = self.db.get_today_partial_count(item["id"], review_date)
+        # 较多遗忘需查询补签当日已回退次数以应用上限（与今日背诵保持一致）
+        today_forgotten_count = 0
+        if result == "mostly_forgotten":
+            today_forgotten_count = self.db.get_today_forgotten_count(item["id"], review_date)
         sched_result = self.scheduler.process_review(item, review_date, result,
                                                       is_retest=False, is_backfill=True,
-                                                      today_partial_count=today_partial_count)
+                                                      today_forgotten_count=today_forgotten_count)
         update_fields = {
             "status": sched_result["status"],
             "round": sched_result["round"],

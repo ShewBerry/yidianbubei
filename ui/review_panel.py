@@ -8,6 +8,7 @@ from ui.theme import (
     COLOR_PERFECT, COLOR_PERFECT_HOVER,
     COLOR_MOSTLY, COLOR_MOSTLY_HOVER,
     COLOR_PARTIAL, COLOR_PARTIAL_HOVER,
+    COLOR_FORGOTTEN, COLOR_FORGOTTEN_HOVER,
     COLOR_WRONG, COLOR_WRONG_HOVER,
     COLOR_TEXT_SECONDARY, PRIMARY,
 )
@@ -149,11 +150,15 @@ class ReviewPanel(ctk.CTkFrame):
             ctk.CTkButton(btn_frame, text="🤔 部分正确", height=42,
                           fg_color=COLOR_PARTIAL, hover_color=COLOR_PARTIAL_HOVER,
                           font=heading_font(),
-                          command=lambda: self._handle_review("partial")).pack(side="left", padx=4, expand=True)
+                          command=lambda: self._handle_review("partial")).pack(side="left", padx=3, expand=True)
+            ctk.CTkButton(btn_frame, text="😕 较多遗忘", height=42,
+                          fg_color=COLOR_FORGOTTEN, hover_color=COLOR_FORGOTTEN_HOVER,
+                          font=heading_font(),
+                          command=lambda: self._handle_review("mostly_forgotten")).pack(side="left", padx=3, expand=True)
             ctk.CTkButton(btn_frame, text="✗ 记错了", height=42,
                           fg_color=COLOR_WRONG, hover_color=COLOR_WRONG_HOVER,
                           font=heading_font(),
-                          command=lambda: self._handle_review("wrong")).pack(side="left", padx=4, expand=True)
+                          command=lambda: self._handle_review("wrong")).pack(side="left", padx=3, expand=True)
 
             # 用 PanedWindow 实现可拖拽 sash：内容框（上）与笔记（下）之间有分隔条，
             # 鼠标放在分隔条上会变成上下箭头光标，按下拖动即可自由调整内容框高度，
@@ -247,15 +252,15 @@ class ReviewPanel(ctk.CTkFrame):
             except Exception:
                 pass
 
-        # partial 需查询今日已回退次数以应用上限
-        today_partial_count = 0
-        if result == "partial":
-            today_partial_count = self.db.get_today_partial_count(item["id"], today)
+        # 较多遗忘需查询今日已回退次数以应用上限
+        today_forgotten_count = 0
+        if result == "mostly_forgotten":
+            today_forgotten_count = self.db.get_today_forgotten_count(item["id"], today)
 
         sched_result = self.scheduler.process_review(
             item, today, result,
             is_retest=current["is_retest"],
-            today_partial_count=today_partial_count)
+            today_forgotten_count=today_forgotten_count)
 
         # 更新数据库
         update_fields = {

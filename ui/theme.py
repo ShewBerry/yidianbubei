@@ -20,6 +20,8 @@ COLOR_MOSTLY = "#1b6ca8"        # 青蓝 - 基本正确（与主色区分但同�
 COLOR_MOSTLY_HOVER = "#145985"
 COLOR_PARTIAL = "#e09f3e"       # 琥珀 - 部分正确
 COLOR_PARTIAL_HOVER = "#c68428"
+COLOR_FORGOTTEN = "#cd6e4a"     # 红橙 - 较多遗忘
+COLOR_FORGOTTEN_HOVER = "#b35a3a"
 COLOR_WRONG = "#c1554b"         # 砖红 - 记错了
 COLOR_WRONG_HOVER = "#a23e36"
 

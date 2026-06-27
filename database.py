@@ -247,11 +247,11 @@ class Database:
             "SELECT DISTINCT item_id FROM review_logs WHERE review_date=?", (today_str,))
         return {row[0] for row in cursor.fetchall()}
 
-    def get_today_partial_count(self, item_id: int, today) -> int:
-        """返回今日某条目已评分 partial 的次数"""
+    def get_today_forgotten_count(self, item_id: int, today) -> int:
+        """返回今日某条目已评分 mostly_forgotten 的次数（用于回退上限）"""
         today_str = today.isoformat() if hasattr(today, "isoformat") else today
         cursor = self.conn.execute(
-            "SELECT COUNT(*) FROM review_logs WHERE review_date=? AND item_id=? AND result='partial'",
+            "SELECT COUNT(*) FROM review_logs WHERE review_date=? AND item_id=? AND result='mostly_forgotten'",
             (today_str, item_id))
         return cursor.fetchone()[0]
 
