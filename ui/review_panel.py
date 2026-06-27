@@ -133,20 +133,13 @@ class ReviewPanel(ctk.CTkFrame):
                      font=body_font()).pack(side="right")
 
         if current.get("show_content"):
-            # 可标记+可缩放内容框
-            # 不用 expand=True：否则内容框会占满 card 剩余空间，
-            # 把笔记框和评分按钮挤出可见区域（窗口非最大化时尤其明显）
-            self.markable_box = MarkableTextbox(card, self.db, item, read_only_marks=False)
-            self.markable_box.pack(fill="x", padx=20, pady=5)
+            # 布局顺序关键：底部元素先 pack(side="bottom")，再让内容框 expand 填充中间。
+            # 这样无论窗口多小，评分按钮和笔记始终固定在底部可见，内容框自适应剩余空间。
+            # 用户通过拖动窗口边缘即可自由调整内容框高度，无需固定高度按钮。
 
-            # 条目笔记
-            self.notes_box = NotesBox(card, self.db, item["id"],
-                                       current_notes=item.get("notes", ""), height=70)
-            self.notes_box.pack(fill="x", padx=20, pady=(5, 5))
-
-            # 评分按钮
+            # 评分按钮（最底，先 pack）
             btn_frame = ctk.CTkFrame(card, fg_color="transparent")
-            btn_frame.pack(fill="x", padx=20, pady=(5, 15))
+            btn_frame.pack(side="bottom", fill="x", padx=20, pady=(5, 15))
 
             ctk.CTkButton(btn_frame, text="✓ 完全正确", height=42,
                           fg_color=COLOR_PERFECT, hover_color=COLOR_PERFECT_HOVER,
@@ -164,6 +157,15 @@ class ReviewPanel(ctk.CTkFrame):
                           fg_color=COLOR_WRONG, hover_color=COLOR_WRONG_HOVER,
                           font=heading_font(),
                           command=lambda: self._handle_review("wrong")).pack(side="left", padx=4, expand=True)
+
+            # 条目笔记（次底）
+            self.notes_box = NotesBox(card, self.db, item["id"],
+                                       current_notes=item.get("notes", ""), height=70)
+            self.notes_box.pack(side="bottom", fill="x", padx=20, pady=(5, 5))
+
+            # 可标记+可缩放内容框（填充剩余空间，跟随窗口大小伸缩）
+            self.markable_box = MarkableTextbox(card, self.db, item, read_only_marks=False)
+            self.markable_box.pack(fill="both", expand=True, padx=20, pady=5)
         else:
             ctk.CTkLabel(card, text="先回忆内容，再点下方按钮查看正文",
                          text_color=COLOR_TEXT_SECONDARY, font=body_font()).pack(pady=40)

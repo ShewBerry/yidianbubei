@@ -10,14 +10,13 @@ MARK_TAGS = {
 }
 
 FONT_MIN, FONT_MAX = 10, 24
-HEIGHT_OPTIONS = [200, 400, 600]
 
 
 class MarkableTextbox(ctk.CTkFrame):
     """可标记+可缩放的内容展示框。
     - 选中文字 + 点「忘了/模糊」→ 存库并高亮
     - 选中已标记文字 + 点「取消标记」→ 删除覆盖的标记
-    - A+/A- 调字号，⤢ 调框高，设置持久化到 settings 表
+    - A+/A- 调字号（持久化），内容框高度跟随窗口大小自由伸缩
     """
     def __init__(self, parent, db, item: dict, read_only_marks: bool = False):
         super().__init__(parent, fg_color="transparent")
@@ -25,14 +24,8 @@ class MarkableTextbox(ctk.CTkFrame):
         self.item = item
         self.read_only_marks = read_only_marks  # 已掌握面板只读查看高亮
 
-        # 从 settings 读取字号与框高
+        # 从 settings 读取字号
         self.font_size = int(db.get_setting("content_font_size", "14"))
-        self.height_idx = 0
-        saved_h = int(db.get_setting("content_box_height", "200"))
-        for i, h in enumerate(HEIGHT_OPTIONS):
-            if h >= saved_h:
-                self.height_idx = i
-                break
 
         # 工具栏
         toolbar = ctk.CTkFrame(self, fg_color="transparent")
@@ -50,19 +43,16 @@ class MarkableTextbox(ctk.CTkFrame):
                           fg_color=COLOR_NEUTRAL, hover_color=COLOR_NEUTRAL_HOVER,
                           font=small_font(),
                           command=self._remove_mark).pack(side="left", padx=2)
-        # 字号与框高按钮放右侧
+        # 字号按钮放右侧
         ctk.CTkButton(toolbar, text="A-", width=32, height=26,
                       fg_color=COLOR_NEUTRAL, hover_color=COLOR_NEUTRAL_HOVER,
                       font=small_font(), command=self._decrease_font).pack(side="right", padx=2)
         ctk.CTkButton(toolbar, text="A+", width=32, height=26,
                       fg_color=COLOR_NEUTRAL, hover_color=COLOR_NEUTRAL_HOVER,
                       font=small_font(), command=self._increase_font).pack(side="right", padx=2)
-        ctk.CTkButton(toolbar, text="⤢ 高度", width=60, height=26,
-                      fg_color=COLOR_NEUTRAL, hover_color=COLOR_NEUTRAL_HOVER,
-                      font=small_font(), command=self._cycle_height).pack(side="right", padx=2)
 
-        # 内容文本框
-        self.textbox = ctk.CTkTextbox(self, height=HEIGHT_OPTIONS[self.height_idx],
+        # 内容文本框：设一个较小初始高度作为最小值，实际由父容器 expand 控制填充
+        self.textbox = ctk.CTkTextbox(self, height=150,
                                        font=ctk.CTkFont(size=self.font_size))
         self.textbox.pack(fill="both", expand=True)
         self.textbox.insert("1.0", item["content"])
@@ -168,8 +158,3 @@ class MarkableTextbox(ctk.CTkFrame):
     def _apply_font_size(self):
         self.textbox.configure(font=ctk.CTkFont(size=self.font_size))
         self.db.set_setting("content_font_size", str(self.font_size))
-
-    def _cycle_height(self):
-        self.height_idx = (self.height_idx + 1) % len(HEIGHT_OPTIONS)
-        self.textbox.configure(height=HEIGHT_OPTIONS[self.height_idx])
-        self.db.set_setting("content_box_height", str(HEIGHT_OPTIONS[self.height_idx]))
