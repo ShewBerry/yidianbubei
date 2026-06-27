@@ -1,11 +1,13 @@
 # ui/list_panels.py
 import customtkinter as ctk
+from tkinter import messagebox
 from datetime import date
 from scheduler import Scheduler
 from ui.theme import (
     title_font, heading_font, card_title_font, body_font, small_font,
     COLOR_NEUTRAL, COLOR_NEUTRAL_HOVER, COLOR_WARN, COLOR_WARN_HOVER,
     COLOR_TEXT_SECONDARY, PRIMARY, COLOR_PERFECT_HOVER,
+    COLOR_DANGER, COLOR_DANGER_HOVER,
 )
 from ui.markable_textbox import MarkableTextbox
 from ui.notes_box import NotesBox
@@ -113,6 +115,9 @@ class AllItemsPanel(ctk.CTkFrame):
 
             btn_frame = ctk.CTkFrame(card, fg_color="transparent")
             btn_frame.pack(fill="x", padx=12, pady=(0, 8))
+            ctk.CTkButton(btn_frame, text="🗑 删除", width=80, fg_color=COLOR_DANGER,
+                          hover_color=COLOR_DANGER_HOVER, font=body_font(),
+                          command=lambda: self._delete_item(item)).pack(side="left")
             ctk.CTkButton(btn_frame, text="收起", width=80, fg_color=COLOR_NEUTRAL,
                           hover_color=COLOR_NEUTRAL_HOVER, font=body_font(),
                           command=self._collapse).pack(side="right")
@@ -143,6 +148,16 @@ class AllItemsPanel(ctk.CTkFrame):
         EditItemDialog(self, self.db, item,
                        on_saved_callback=lambda _id: self.refresh(),
                        on_deleted_callback=lambda _id: self.refresh())
+
+    def _delete_item(self, item):
+        """直接删除条目（含背诵记录和标记级联清理），带确认弹窗"""
+        if not messagebox.askyesno("确认删除",
+                                    f"确定删除条目“{item['title']}”吗？\n该条目的所有背诵记录也会一起删除，此操作不可撤销。",
+                                    parent=self):
+            return
+        self.db.delete_item(item["id"])
+        self.expanded_item_id = None
+        self.refresh()
 
     def _show_history(self, item):
         from ui.history_dialog import ReviewHistoryDialog
@@ -261,6 +276,9 @@ class MasteredPanel(ctk.CTkFrame):
 
             btn_frame = ctk.CTkFrame(card, fg_color="transparent")
             btn_frame.pack(fill="x", padx=12, pady=(0, 8))
+            ctk.CTkButton(btn_frame, text="🗑 删除", width=80, fg_color=COLOR_DANGER,
+                          hover_color=COLOR_DANGER_HOVER, font=body_font(),
+                          command=lambda: self._delete_item(item)).pack(side="left")
             ctk.CTkButton(btn_frame, text="收起", width=80, fg_color=COLOR_NEUTRAL,
                           hover_color=COLOR_NEUTRAL_HOVER, font=body_font(),
                           command=self._collapse).pack(side="right")
@@ -288,6 +306,16 @@ class MasteredPanel(ctk.CTkFrame):
         EditItemDialog(self, self.db, item,
                        on_saved_callback=lambda _id: self.refresh(),
                        on_deleted_callback=lambda _id: self.refresh())
+
+    def _delete_item(self, item):
+        """直接删除条目（含背诵记录和标记级联清理），带确认弹窗"""
+        if not messagebox.askyesno("确认删除",
+                                    f"确定删除条目“{item['title']}”吗？\n该条目的所有背诵记录也会一起删除，此操作不可撤销。",
+                                    parent=self):
+            return
+        self.db.delete_item(item["id"])
+        self.expanded_item_id = None
+        self.refresh()
 
     def _show_history(self, item):
         from ui.history_dialog import ReviewHistoryDialog
