@@ -190,28 +190,40 @@ class ReviewPanel(ctk.CTkFrame):
 
     def _restore_sash_position(self):
         """展开内容后恢复上次拖拽的 sash 位置。
-        PanedWindow 的 sash_pos 必须在窗口实际渲染后才能设置，用 after 延迟。
-        存的是内容框的高度（像素），默认 350。
-        同时绑定 sash 拖拽释放事件，自动保存新位置。
+
+        存的是内容框占 paned 总高度的比例（0-1），而非绝对像素。
+        这样无论窗口当前多大，都能按比例正确恢复，避免小窗口时被截断。
+        用多次重试确保窗口已渲染完成（winfo_height>1）。
         """
-        saved_height = int(self.db.get_setting("content_paned_height", "350"))
-        def _apply():
+        saved_ratio = float(self.db.get_setting("content_paned_ratio", "0.75"))
+        attempts = [50, 100, 200, 400]  # 多次重试，等窗口真正渲染完成
+        def _apply(attempt_idx=0):
             try:
-                # 限制不超过 paned 当前高度-100（给笔记留空间）
-                max_h = max(150, self.paned.winfo_height() - 100)
-                h = min(saved_height, max_h)
+                paned_h = self.paned.winfo_height()
+                if paned_h <= 1 and attempt_idx < len(attempts) - 1:
+                    # 窗口未就绪，稍后重试
+                    self.after(attempts[attempt_idx + 1], lambda: _apply(attempt_idx + 1))
+                    return
+                # 按比例计算内容框高度
+                h = int(paned_h * saved_ratio)
+                # 限制范围：至少120，最多留100给笔记
+                h = max(120, min(h, paned_h - 100)) if paned_h > 220 else 120
                 self.paned.sash_place(0, 0, h)
             except Exception:
-                pass  # 窗口未就绪时静默跳过
-        self.after(50, _apply)
-        # 拖拽 sash 释放后自动保存新位置
+                if attempt_idx < len(attempts) - 1:
+                    self.after(attempts[attempt_idx + 1], lambda: _apply(attempt_idx + 1))
+        self.after(attempts[0], _apply)
+        # 拖拽 sash 释放后自动保存新比例
         self.paned.bind("<ButtonRelease-1>", lambda _e: self._save_sash_position(), add="+")
 
     def _save_sash_position(self):
-        """保存当前 sash 位置到 settings"""
+        """保存当前 sash 位置（比例）到 settings"""
         try:
-            h = self.paned.sash_coord(0)[1]  # 第0个sash的y坐标=内容框高度
-            self.db.set_setting("content_paned_height", str(h))
+            paned_h = self.paned.winfo_height()
+            if paned_h > 1:
+                sash_y = self.paned.sash_coord(0)[1]
+                ratio = max(0.3, min(0.9, sash_y / paned_h))
+                self.db.set_setting("content_paned_ratio", str(round(ratio, 3)))
         except Exception:
             pass
 
