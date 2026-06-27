@@ -8,7 +8,7 @@ class EditItemDialog(ctk.CTkToplevel):
     def __init__(self, parent, db, item, on_saved_callback=None, on_deleted_callback=None):
         super().__init__(parent)
         self.title("编辑条目")
-        self.geometry("450x600")
+        self.geometry("450x520")
         self.db = db
         self.item = item
         self.on_saved_callback = on_saved_callback
@@ -42,13 +42,16 @@ class EditItemDialog(ctk.CTkToplevel):
         ctk.CTkLabel(self, text="提示：修改标题/正文/分类不会影响当前背诵进度；修改正文会按比例平移已有标记",
                      text_color="gray", font=ctk.CTkFont(size=11)).pack(padx=20, pady=(0, 5))
 
-        # 按钮
+        # 按钮：左侧删除条目（红色醒目），右侧保存/取消
+        # 用 side=left/right 分两侧布局，删除固定左下角，避免被误忽略
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.pack(pady=8)
-        ctk.CTkButton(btn_frame, text="取消", command=self.destroy, width=90).pack(side="left", padx=5)
-        ctk.CTkButton(btn_frame, text="保存修改", command=self._on_save, width=100).pack(side="left", padx=5)
-        ctk.CTkButton(btn_frame, text="删除条目", fg_color="#e74c3c", hover_color="#c0392b",
-                      width=100, command=self._on_delete).pack(side="left", padx=5)
+        btn_frame.pack(fill="x", pady=8, padx=20)
+        ctk.CTkButton(btn_frame, text="🗑 删除条目", fg_color="#e74c3c", hover_color="#c0392b",
+                      width=120, height=34, command=self._on_delete).pack(side="left")
+        ctk.CTkButton(btn_frame, text="取消", command=self.destroy,
+                      width=80, height=34).pack(side="right", padx=(5, 0))
+        ctk.CTkButton(btn_frame, text="保存修改", command=self._on_save,
+                      width=100, height=34).pack(side="right", padx=(0, 5))
 
         self.transient(parent)
         self.grab_set()
