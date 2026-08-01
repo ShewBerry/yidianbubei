@@ -1,12 +1,31 @@
+# Python
 __pycache__/
 *.pyc
-.pytest_cache/
-data/*.db
+*.pyo
+*.egg-info/
 .venv/
 venv/
-# PyInstaller 打包产物
+
+# 构建产物
 build/
 dist/
 *.spec
-# 编译后的 exe（不进版本库）
-*.exe
+
+# 数据库（含用户数据，绝不入库）
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+
+# 同步凭证（敏感，绝不入库）
+data/sync_auth.json
+data/sync_config.json
+
+# 临时文件
+_inspect_db.py
+_*.py
+*.tmp
+
+# 归档/备份目录（保留在磁盘，不入库）
+_archive_*/
+mobile_backup_*/
