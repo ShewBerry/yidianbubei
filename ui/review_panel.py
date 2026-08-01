@@ -41,28 +41,45 @@ class ReviewPanel(ctk.CTkFrame):
 
         self.card_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.card_frame.pack(fill="both", expand=True, padx=30, pady=(0, 15))
-
-        self.refresh()
+        # 不在构造时 refresh——由 MainWindow 在 mainloop 启动后用 after 触发，
+        # 避免启动时 DB 查询阻塞窗口显示
 
     def refresh(self):
         """刷新今日队列。
 
-        - 队列非空时（背诵进行中）：只追加新出现的 due 条目到末尾，不重建队列，
-          避免重背条目丢失或当前背诵条目跳变。
+        - 队列非空时（背诵进行中）：先同步队列状态（移除已删除条目、刷新已编辑条目数据），
+          再追加新出现的 due 条目到末尾。保留 is_retest/show_content 等运行时状态。
         - 队列为空时：从数据库完整重建队列。
         """
         today = date.today()
-        self.db.bring_overdue_to_today(today)
         due_items = self.db.get_due_items(today)
         reviewed_ids = self.db.get_today_reviewed_item_ids(today)
 
         if self.queue:
-            # 背诵进行中：只追加新条目，不重建队列
+            # 背诵进行中：同步队列（移除已删除/已不在 due 的条目，刷新已编辑的条目数据）
+            due_map = {i["id"]: i for i in due_items}
+            new_queue = []
+            for q in self.queue:
+                item_id = q["item"]["id"]
+                if item_id in due_map:
+                    # 仍在 due 中：刷新 item 数据（标题/内容等可能已被编辑），保留运行时状态
+                    q["item"] = due_map[item_id]
+                    new_queue.append(q)
+                # else: 已软删除或已不在 due（如被改到未来），从队列丢弃
+            self.queue = new_queue
+            # 追加新出现的 due 条目（不在队列中的）
             existing_ids = {q["item"]["id"] for q in self.queue}
             for item in due_items:
                 if item["id"] not in existing_ids:
                     is_retest = item["id"] in reviewed_ids
                     self.queue.append({"item": item, "is_retest": is_retest})
+            # 重新计算 completed_count（云端拉取可能新增了今日 perfect 评分）
+            today_perfect = self.db.get_perfect_count_in_range(today, today)
+            due_perfect_in_logs = 0
+            if due_items:
+                due_ids = [i["id"] for i in due_items]
+                due_perfect_in_logs = self._count_perfect_in_logs(today, due_ids)
+            self.completed_count = today_perfect - due_perfect_in_logs
             self.total_count = len(self.queue) + self.completed_count
             self._update_progress()
             self._render_current_card()

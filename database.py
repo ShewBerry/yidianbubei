@@ -2,6 +2,7 @@
 import sqlite3
 import os
 from datetime import date
+from ui.html_utils import html_to_plain_text
 
 
 class Database:
@@ -64,24 +65,82 @@ class Database:
         cols = {row[1] for row in self.conn.execute("PRAGMA table_info(items)")}
         if "notes" not in cols:
             self.conn.execute("ALTER TABLE items ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
+        # 迁移：为旧库的 items 表补 deleted_at 字段（软删除，回收站用）
+        if "deleted_at" not in cols:
+            self.conn.execute("ALTER TABLE items ADD COLUMN deleted_at TEXT")
+        # 迁移：为旧库的 categories 表补 sort_order 字段（已存在则忽略）
+        cat_cols = {row[1] for row in self.conn.execute("PRAGMA table_info(categories)")}
+        if "sort_order" not in cat_cols:
+            self.conn.execute("ALTER TABLE categories ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
         self.conn.commit()
 
-    # ===== 分类 CRUD（不变）=====
+    # ===== 分类 CRUD =====
     def create_category(self, name: str, parent_id: int = None) -> int:
+        # 新分类的 sort_order 取同级最大值 +1，保证新分类排在末尾
         cursor = self.conn.execute(
-            "INSERT INTO categories (name, parent_id) VALUES (?, ?)", (name, parent_id))
+            "SELECT COALESCE(MAX(sort_order), -1) FROM categories WHERE parent_id IS ?",
+            (parent_id,))
+        max_order = cursor.fetchone()[0]
+        new_order = max_order + 1
+        cursor = self.conn.execute(
+            "INSERT INTO categories (name, parent_id, sort_order) VALUES (?, ?, ?)",
+            (name, parent_id, new_order))
         self.conn.commit()
         return cursor.lastrowid
 
     def get_categories(self) -> list:
-        cursor = self.conn.execute("SELECT id, name, parent_id FROM categories ORDER BY name")
-        return [{"id": r[0], "name": r[1], "parent_id": r[2]} for r in cursor.fetchall()]
+        cursor = self.conn.execute(
+            "SELECT id, name, parent_id, sort_order FROM categories ORDER BY sort_order")
+        return [{"id": r[0], "name": r[1], "parent_id": r[2], "sort_order": r[3]}
+                for r in cursor.fetchall()]
 
     def get_category_children(self, parent_id: int = None) -> list:
         cursor = self.conn.execute(
-            "SELECT id, name, parent_id FROM categories WHERE parent_id IS ? ORDER BY name",
+            "SELECT id, name, parent_id, sort_order FROM categories WHERE parent_id IS ? ORDER BY sort_order",
             (parent_id,))
-        return [{"id": r[0], "name": r[1], "parent_id": r[2]} for r in cursor.fetchall()]
+        return [{"id": r[0], "name": r[1], "parent_id": r[2], "sort_order": r[3]}
+                for r in cursor.fetchall()]
+
+    def get_category_siblings(self, category_id: int) -> list:
+        """返回同父分类下的所有兄弟分类（含自身），按 sort_order 排序"""
+        cursor = self.conn.execute(
+            "SELECT parent_id FROM categories WHERE id=?", (category_id,))
+        row = cursor.fetchone()
+        if row is None:
+            return []
+        parent_id = row[0]
+        cursor = self.conn.execute(
+            "SELECT id, name, parent_id, sort_order FROM categories WHERE parent_id IS ? ORDER BY sort_order",
+            (parent_id,))
+        return [{"id": r[0], "name": r[1], "parent_id": r[2], "sort_order": r[3]}
+                for r in cursor.fetchall()]
+
+    def move_category(self, category_id: int, direction: str):
+        """上移/下移分类：与相邻兄弟交换 sort_order。
+        direction: 'up' 或 'down'"""
+        siblings = self.get_category_siblings(category_id)
+        if len(siblings) < 2:
+            return
+        # 找当前分类在兄弟列表中的位置
+        idx = next((i for i, c in enumerate(siblings) if c["id"] == category_id), -1)
+        if idx == -1:
+            return
+        if direction == "up" and idx > 0:
+            swap_idx = idx - 1
+        elif direction == "down" and idx < len(siblings) - 1:
+            swap_idx = idx + 1
+        else:
+            return  # 已在边界，无法移动
+        cur = siblings[idx]
+        target = siblings[swap_idx]
+        # 交换两者的 sort_order
+        self.conn.execute(
+            "UPDATE categories SET sort_order=? WHERE id=?",
+            (target["sort_order"], cur["id"]))
+        self.conn.execute(
+            "UPDATE categories SET sort_order=? WHERE id=?",
+            (cur["sort_order"], target["id"]))
+        self.conn.commit()
 
     def rename_category(self, category_id: int, new_name: str):
         self.conn.execute("UPDATE categories SET name=? WHERE id=?", (new_name, category_id))
@@ -116,15 +175,16 @@ class Database:
     # ===== 条目 CRUD =====
     def create_item(self, title: str, content: str, created_date, next_review_date,
                     status: str = "learning", round: int = 1, interval: int = 0,
-                    consecutive_correct: int = 0, category_id: int = None) -> int:
+                    consecutive_correct: int = 0, category_id: int = None,
+                    notes: str = "") -> int:
         nrd = next_review_date.isoformat() if hasattr(next_review_date, "isoformat") else next_review_date
         cd = created_date.isoformat() if hasattr(created_date, "isoformat") else created_date
         cursor = self.conn.execute(
             """INSERT INTO items (title, content, created_date, category_id, status,
-                                   round, interval, consecutive_correct, next_review_date)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                   round, interval, consecutive_correct, next_review_date, notes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (title, content, cd, category_id, status, round, interval,
-             consecutive_correct, nrd))
+             consecutive_correct, nrd, notes))
         self.conn.commit()
         return cursor.lastrowid
 
@@ -133,28 +193,32 @@ class Database:
             "id": row[0], "title": row[1], "content": row[2], "created_date": row[3],
             "category_id": row[4], "status": row[5], "round": row[6], "interval": row[7],
             "consecutive_correct": row[8], "next_review_date": row[9],
-            "notes": row[10] if len(row) > 10 else ""
+            "notes": row[10] if len(row) > 10 else "",
+            "deleted_at": row[11] if len(row) > 11 else None
         }
 
     def get_due_items(self, today) -> list:
         today_str = today.isoformat() if hasattr(today, "isoformat") else today
         cursor = self.conn.execute(
             """SELECT * FROM items
-               WHERE status='learning' AND next_review_date != '' AND next_review_date <= ?
+               WHERE deleted_at IS NULL AND status='learning'
+                 AND next_review_date != '' AND next_review_date <= ?
                ORDER BY next_review_date ASC""", (today_str,))
         return [self._row_to_item(r) for r in cursor.fetchall()]
 
     def get_active_items(self) -> list:
         cursor = self.conn.execute(
-            "SELECT * FROM items WHERE status='learning' ORDER BY next_review_date ASC")
+            "SELECT * FROM items WHERE deleted_at IS NULL AND status='learning' ORDER BY next_review_date ASC")
         return [self._row_to_item(r) for r in cursor.fetchall()]
 
     def get_mastered_items(self) -> list:
         cursor = self.conn.execute(
-            "SELECT * FROM items WHERE status IN ('mastered','archived') ORDER BY created_date DESC")
+            "SELECT * FROM items WHERE deleted_at IS NULL AND status IN ('mastered','archived') ORDER BY created_date DESC")
         return [self._row_to_item(r) for r in cursor.fetchall()]
 
     def get_item(self, item_id: int) -> dict:
+        """按 id 获取单个条目。注意：不过滤 deleted_at，回收站 UI 等场景需要读取已删除条目。
+        调用方需自行判断 deleted_at 是否为 None。"""
         cursor = self.conn.execute("SELECT * FROM items WHERE id=?", (item_id,))
         row = cursor.fetchone()
         return self._row_to_item(row) if row else None
@@ -162,7 +226,7 @@ class Database:
     def get_items_by_category(self, category_id: int = None, include_descendants: bool = True) -> list:
         if category_id is None:
             cursor = self.conn.execute(
-                "SELECT * FROM items WHERE category_id IS NULL ORDER BY created_date DESC")
+                "SELECT * FROM items WHERE deleted_at IS NULL AND category_id IS NULL ORDER BY created_date DESC")
             return [self._row_to_item(r) for r in cursor.fetchall()]
         if include_descendants:
             ids = self.get_category_descendant_ids(category_id)
@@ -170,18 +234,51 @@ class Database:
                 return []
             placeholders = ",".join("?" * len(ids))
             cursor = self.conn.execute(
-                f"SELECT * FROM items WHERE category_id IN ({placeholders}) ORDER BY created_date DESC",
+                f"SELECT * FROM items WHERE deleted_at IS NULL AND category_id IN ({placeholders}) ORDER BY created_date DESC",
                 ids)
         else:
             cursor = self.conn.execute(
-                "SELECT * FROM items WHERE category_id=? ORDER BY created_date DESC", (category_id,))
+                "SELECT * FROM items WHERE deleted_at IS NULL AND category_id=? ORDER BY created_date DESC", (category_id,))
         return [self._row_to_item(r) for r in cursor.fetchall()]
 
     def delete_item(self, item_id: int):
+        """软删除：标记 deleted_at，不真正删除数据。
+        回收站保留 30 天，过期后由 purge_expired_deleted 自动清理。"""
+        from datetime import datetime
+        now = datetime.now().isoformat()
+        self.conn.execute("UPDATE items SET deleted_at=? WHERE id=?", (now, item_id))
+        self.conn.commit()
+
+    def get_deleted_items(self) -> list:
+        """获取回收站中的条目（已软删除），按删除时间倒序。"""
+        cursor = self.conn.execute(
+            "SELECT * FROM items WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")
+        return [self._row_to_item(r) for r in cursor.fetchall()]
+
+    def restore_item(self, item_id: int):
+        """从回收站恢复条目（清除 deleted_at 标记）"""
+        self.conn.execute("UPDATE items SET deleted_at=NULL WHERE id=?", (item_id,))
+        self.conn.commit()
+
+    def purge_item(self, item_id: int):
+        """彻底删除条目（物理删除，不可恢复）。
+        用于回收站的"彻底删除"操作，或删除已软删除的条目。"""
         self.conn.execute("DELETE FROM review_logs WHERE item_id=?", (item_id,))
         self.conn.execute("DELETE FROM item_marks WHERE item_id=?", (item_id,))
         self.conn.execute("DELETE FROM items WHERE id=?", (item_id,))
         self.conn.commit()
+
+    def purge_expired_deleted(self, days: int = 30):
+        """清理回收站中超过指定天数的条目（物理删除）。
+        默认保留 30 天。"""
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        cursor = self.conn.execute(
+            "SELECT id FROM items WHERE deleted_at IS NOT NULL AND deleted_at < ?", (cutoff,))
+        expired_ids = [row[0] for row in cursor.fetchall()]
+        for item_id in expired_ids:
+            self.purge_item(item_id)
+        return len(expired_ids)
 
     def update_item(self, item_id: int, **fields):
         allowed = {"title", "content", "status", "round", "interval",
@@ -189,11 +286,11 @@ class Database:
         updates = {k: v for k, v in fields.items() if k in allowed}
         if not updates:
             return
-        # 编辑 content 时需平移已有标记
+        # 编辑 content 时需平移已有标记（按纯文本，HTML 标签不计入）
         if "content" in updates:
             old_item = self.get_item(item_id)
-            old_len = len(old_item["content"]) if old_item else 0
-            new_len = len(updates["content"])
+            old_plain = html_to_plain_text(old_item["content"]) if old_item else ""
+            new_plain = html_to_plain_text(updates["content"])
         for date_field in ("next_review_date",):
             if date_field in updates and hasattr(updates[date_field], "isoformat"):
                 updates[date_field] = updates[date_field].isoformat()
@@ -202,16 +299,7 @@ class Database:
         self.conn.execute(f"UPDATE items SET {set_clause} WHERE id=?", values)
         self.conn.commit()
         if "content" in updates:
-            self._shift_marks(item_id, old_len, new_len)
-
-    def bring_overdue_to_today(self, today):
-        """将过期未处理的条目顺延到今天"""
-        today_str = today.isoformat() if hasattr(today, "isoformat") else today
-        self.conn.execute(
-            """UPDATE items SET next_review_date = ?
-               WHERE next_review_date < ? AND next_review_date != '' AND status = 'learning'""",
-            (today_str, today_str))
-        self.conn.commit()
+            self._shift_marks(item_id, old_plain, new_plain)
 
     def batch_update_round2(self, item_ids: list, today):
         """批量将条目重置为二轮状态"""
@@ -256,9 +344,9 @@ class Database:
         return cursor.fetchone()[0]
 
     def get_status_counts(self) -> dict:
-        """返回各状态的条目数"""
+        """返回各状态的条目数（不含已软删除）"""
         cursor = self.conn.execute(
-            "SELECT status, COUNT(*) FROM items GROUP BY status")
+            "SELECT status, COUNT(*) FROM items WHERE deleted_at IS NULL GROUP BY status")
         counts = {"learning": 0, "mastered": 0, "archived": 0}
         for row in cursor.fetchall():
             counts[row[0]] = row[1]
@@ -274,28 +362,30 @@ class Database:
         return cursor.fetchone()[0]
 
     def get_category_progress(self) -> list:
-        """返回每个顶层分类（含子孙）的进度统计"""
-        top_cats = self.conn.execute(
-            "SELECT id, name FROM categories WHERE parent_id IS NULL ORDER BY name").fetchall()
-        result = []
-        for cat_id, cat_name in top_cats:
-            descendant_ids = self.get_category_descendant_ids(cat_id)
-            if not descendant_ids:
-                result.append({"id": cat_id, "name": cat_name, "total": 0,
-                               "learning": 0, "mastered": 0, "archived": 0})
-                continue
-            placeholders = ",".join("?" * len(descendant_ids))
-            cursor = self.conn.execute(
-                f"""SELECT
-                    COUNT(*) as total,
-                    SUM(CASE WHEN status='learning' THEN 1 ELSE 0 END) as learning,
-                    SUM(CASE WHEN status='mastered' THEN 1 ELSE 0 END) as mastered,
-                    SUM(CASE WHEN status='archived' THEN 1 ELSE 0 END) as archived
-                    FROM items WHERE category_id IN ({placeholders})""", descendant_ids)
-            row = cursor.fetchone()
-            result.append({"id": cat_id, "name": cat_name, "total": row[0],
-                           "learning": row[1] or 0, "mastered": row[2] or 0, "archived": row[3] or 0})
-        return result
+        """返回每个顶层分类（含子孙）的进度统计。
+        用单条递归 CTE 一次查出，避免 N+1 查询。"""
+        cursor = self.conn.execute("""
+            WITH RECURSIVE cat_tree(root_id, id) AS (
+                SELECT id, id FROM categories WHERE parent_id IS NULL
+                UNION ALL
+                SELECT ct.root_id, c.id FROM categories c
+                JOIN cat_tree ct ON c.parent_id = ct.id
+            )
+            SELECT t.id, t.name,
+                   COUNT(i.id) AS total,
+                   COALESCE(SUM(CASE WHEN i.status='learning' THEN 1 ELSE 0 END), 0) AS learning,
+                   COALESCE(SUM(CASE WHEN i.status='mastered' THEN 1 ELSE 0 END), 0) AS mastered,
+                   COALESCE(SUM(CASE WHEN i.status='archived' THEN 1 ELSE 0 END), 0) AS archived
+            FROM categories t
+            LEFT JOIN cat_tree ct ON ct.root_id = t.id
+            LEFT JOIN items i ON i.category_id = ct.id AND i.deleted_at IS NULL
+            WHERE t.parent_id IS NULL
+            GROUP BY t.id, t.name, t.sort_order
+            ORDER BY t.sort_order
+        """)
+        return [{"id": r[0], "name": r[1], "total": r[2],
+                 "learning": r[3], "mastered": r[4], "archived": r[5]}
+                for r in cursor.fetchall()]
 
     # ===== 标记 CRUD =====
     def add_mark(self, item_id: int, start_pos: int, end_pos: int, mark_type: str) -> int:
@@ -308,12 +398,14 @@ class Database:
         self.conn.commit()
         return cursor.lastrowid
 
-    def get_marks(self, item_id: int) -> list:
+    def get_marks(self, item_id: int, content_len: int = None) -> list:
         """返回该条目的所有合法标记，按 start_pos 升序。
         过滤掉 start>=end 或超出当前 content 长度的非法标记（容错：编辑后位置漂移）。
+        content_len: 调用方已知纯文本长度时可传入，避免内部重复 get_item + html_to_plain_text。
         """
-        item = self.get_item(item_id)
-        content_len = len(item["content"]) if item else 0
+        if content_len is None:
+            item = self.get_item(item_id)
+            content_len = len(html_to_plain_text(item["content"])) if item else 0
         cursor = self.conn.execute(
             """SELECT id, item_id, start_pos, end_pos, mark_type, created_date
                FROM item_marks WHERE item_id=? ORDER BY start_pos ASC""", (item_id,))
@@ -329,33 +421,66 @@ class Database:
         self.conn.execute("DELETE FROM item_marks WHERE id=?", (mark_id,))
         self.conn.commit()
 
-    def _shift_marks(self, item_id: int, old_len: int, new_len: int):
-        """编辑 content 后按比例平移已有标记位置。
-        old_len=0 或 new_len=0 时清空该条目所有标记。
-        start 向下取整、end 向上取整，避免标记范围被意外压缩消失。
+    def _shift_marks(self, item_id: int, old_text: str, new_text: str):
+        """编辑 content 后平移已有标记位置（基于纯文本，HTML 标签不计入）。
+
+        用公共前缀+后缀定位编辑区段，只平移编辑点之后的标记：
+        - 标记完全在编辑区段之前：位置不变
+        - 标记完全在编辑区段之后：位置整体增量平移 delta = new_len - old_len
+        - 标记跨越或在编辑区段内：删除（无法精确恢复）
+
+        这样局部编辑（如在开头插入1字）只影响后续标记的位置，
+        不会按比例错误缩放所有标记。
         """
-        import math
+        old_len = len(old_text)
+        new_len = len(new_text)
         if old_len == 0 or new_len == 0:
+            # 旧或新为空：无法定位编辑点，清空所有标记
             self.conn.execute("DELETE FROM item_marks WHERE item_id=?", (item_id,))
             self.conn.commit()
             return
+        # 找最长公共前缀
+        prefix_len = 0
+        max_prefix = min(old_len, new_len)
+        while prefix_len < max_prefix and old_text[prefix_len] == new_text[prefix_len]:
+            prefix_len += 1
+        # 找最长公共后缀（不能与前缀重叠）
+        suffix_len = 0
+        max_suffix = min(old_len - prefix_len, new_len - prefix_len)
+        while (suffix_len < max_suffix
+               and old_text[old_len - 1 - suffix_len] == new_text[new_len - 1 - suffix_len]):
+            suffix_len += 1
+        # 编辑区段在 old 中：[prefix_len, old_edit_end)
+        old_edit_end = old_len - suffix_len
+        # 编辑区段在 new 中：[prefix_len, new_edit_end)
+        new_edit_end = new_len - suffix_len
+        delta = new_edit_end - old_edit_end  # 编辑点之后的平移量
+
         cursor = self.conn.execute(
             "SELECT id, start_pos, end_pos FROM item_marks WHERE item_id=?", (item_id,))
         rows = cursor.fetchall()
         for mark_id, start, end in rows:
-            new_start = math.floor(start * new_len / old_len)
-            new_end = math.ceil(end * new_len / old_len)
-            if new_start >= new_end or new_start >= new_len:
-                self.conn.execute("DELETE FROM item_marks WHERE id=?", (mark_id,))
-            else:
-                # end 不超过新长度
-                new_end = min(new_end, new_len)
-                if new_start >= new_end:
+            if end <= prefix_len:
+                # 标记完全在编辑区段之前：位置不变
+                continue
+            if start >= old_edit_end:
+                # 标记完全在编辑区段之后：整体增量平移
+                new_start = start + delta
+                new_end = end + delta
+                # 边界容错（不应超出新长度）
+                if new_start >= new_end or new_start >= new_len:
                     self.conn.execute("DELETE FROM item_marks WHERE id=?", (mark_id,))
                 else:
-                    self.conn.execute(
-                        "UPDATE item_marks SET start_pos=?, end_pos=? WHERE id=?",
-                        (new_start, new_end, mark_id))
+                    new_end = min(new_end, new_len)
+                    if new_start >= new_end:
+                        self.conn.execute("DELETE FROM item_marks WHERE id=?", (mark_id,))
+                    else:
+                        self.conn.execute(
+                            "UPDATE item_marks SET start_pos=?, end_pos=? WHERE id=?",
+                            (new_start, new_end, mark_id))
+            else:
+                # 标记跨越或在编辑区段内：删除（无法精确恢复）
+                self.conn.execute("DELETE FROM item_marks WHERE id=?", (mark_id,))
         self.conn.commit()
 
     # ===== 设置 CRUD =====

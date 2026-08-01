@@ -75,15 +75,17 @@ def test_get_mastered_items(db):
     assert mastered[0]["title"] == "已掌握"
 
 
-def test_bring_overdue_to_today(db):
+def test_get_due_items_includes_overdue_without_mutation(db):
+    """过期条目应出现在待背列表，但 next_review_date 不被改写"""
     today = date(2026, 6, 26)
-    yesterday = today - timedelta(days=1)
-    db.create_item("过期", "内容", yesterday, yesterday, status="learning",
-                   round=1, interval=1, consecutive_correct=1)
-    db.bring_overdue_to_today(today)
+    past = today - timedelta(days=3)
+    item_id = db.create_item("过期条目", "内容", today, past)
     due = db.get_due_items(today)
-    assert len(due) == 1
-    assert due[0]["title"] == "过期"
+    assert any(i["id"] == item_id for i in due)
+    row = db.conn.execute(
+        "SELECT next_review_date FROM items WHERE id=?", (item_id,)).fetchone()
+    assert row[0] == past.isoformat()  # 原始应背日保持不变
+    assert not hasattr(db, "bring_overdue_to_today")  # 方法已删除
 
 
 def test_log_and_get_review_logs(db):
@@ -314,14 +316,31 @@ def test_delete_mark(db):
     assert len(marks) == 0
 
 
-def test_delete_item_cascades_marks(db):
-    """删除条目时标记应级联删除"""
+def test_delete_item_soft_delete_and_restore(db):
+    """删除条目应软删除（保留数据和标记），可恢复；彻底删除才级联清理标记"""
     today = date(2026, 6, 26)
     item_id = db.create_item("测试", "abcdefg", today, today)
     db.add_mark(item_id, 0, 2, "forgot")
+
+    # 软删除：标记 deleted_at，但数据与标记保留（便于恢复）
     db.delete_item(item_id)
-    marks = db.get_marks(item_id)
-    assert len(marks) == 0
+    deleted_items = db.get_deleted_items()
+    assert any(i["id"] == item_id for i in deleted_items)
+    # 标记仍保留（恢复后可继续使用）
+    assert len(db.get_marks(item_id)) == 1
+    # 软删除后不在常规查询中
+    assert all(i["id"] != item_id for i in db.get_active_items())
+
+    # 恢复：清除 deleted_at，条目回到常规查询
+    db.restore_item(item_id)
+    assert all(i["id"] != item_id for i in db.get_deleted_items())
+    assert any(i["id"] == item_id for i in db.get_active_items())
+
+    # 彻底删除：级联清理标记
+    db.delete_item(item_id)  # 先软删除
+    db.purge_item(item_id)
+    assert len(db.get_marks(item_id)) == 0
+    assert db.get_item(item_id) is None
 
 
 def test_get_marks_filters_invalid(db):
@@ -357,23 +376,71 @@ def test_setting_persists_across_connection(db):
 
 
 def test_shift_marks_on_content_edit(db):
-    """编辑正文（长度变化）后，已有标记应按比例平移。
-    start 向下取整、end 向上取整，避免标记范围被压缩消失。
-    """
+    """编辑正文（末尾删除）后：编辑点之前的标记不变，被删内容覆盖的标记删除"""
+    today = date(2026, 6, 26)
+    item_id = db.create_item("测试", "0123456789", today, today)  # 长度10
+    db.add_mark(item_id, 2, 5, "forgot")   # 标记 "234"，在编辑点之前
+    db.add_mark(item_id, 7, 9, "fuzzy")    # 标记 "78"，在被删除的区段内
+    # 把正文缩短为长度5：01234（删掉末尾5个字）
+    db.update_item(item_id, content="01234")
+    marks = db.get_marks(item_id)
+    # 标记1 [2,5] 在前缀"01234"内 → 位置不变
+    # 标记2 [7,9] 在被删区段内 → 删除
+    assert len(marks) == 1
+    assert marks[0]["start_pos"] == 2
+    assert marks[0]["end_pos"] == 5
+
+
+def test_shift_marks_insert_at_start(db):
+    """在开头插入字符：之后的标记应整体增量平移，不按比例缩放"""
     today = date(2026, 6, 26)
     item_id = db.create_item("测试", "0123456789", today, today)  # 长度10
     db.add_mark(item_id, 2, 5, "forgot")   # 标记 "234"
     db.add_mark(item_id, 7, 9, "fuzzy")    # 标记 "78"
-    # 把正文缩短为长度5：01234
-    db.update_item(item_id, content="01234")
+    # 在开头插入 "X"，新内容 "X0123456789"（长度11）
+    db.update_item(item_id, content="X0123456789")
     marks = db.get_marks(item_id)
-    # 旧 start=2 → floor(2*5/10)=1；旧 end=5 → ceil(5*5/10)=3
-    # 旧 start=7 → floor(7*5/10)=3；旧 end=9 → ceil(9*5/10)=5
+    # 公共前缀=0，公共后缀=10（"0123456789"），编辑区段在 old=[0,0)，在 new=[0,1)
+    # delta = 1 - 0 = 1
+    # 标记1 [2,5]：start(2)>=old_edit_end(0) → 平移 → [3,6]
+    # 标记2 [7,9]：start(7)>=old_edit_end(0) → 平移 → [8,10]
     assert len(marks) == 2
-    assert marks[0]["start_pos"] == 1
-    assert marks[0]["end_pos"] == 3
-    assert marks[1]["start_pos"] == 3
-    assert marks[1]["end_pos"] == 5
+    m1 = next(m for m in marks if m["mark_type"] == "forgot")
+    m2 = next(m for m in marks if m["mark_type"] == "fuzzy")
+    assert (m1["start_pos"], m1["end_pos"]) == (3, 6)
+    assert (m2["start_pos"], m2["end_pos"]) == (8, 10)
+
+
+def test_shift_marks_delete_in_middle(db):
+    """在中间删除字符：删除点之前的标记不变，之后的标记按 delta 平移"""
+    today = date(2026, 6, 26)
+    item_id = db.create_item("测试", "0123456789", today, today)  # 长度10
+    db.add_mark(item_id, 1, 3, "forgot")   # 标记 "12"，在删除点之前
+    db.add_mark(item_id, 7, 9, "fuzzy")    # 标记 "78"，在删除点之后
+    # 删除 "345"（位置3-6），新内容 "0126789"（长度7）
+    db.update_item(item_id, content="0126789")
+    marks = db.get_marks(item_id)
+    # 公共前缀=3（"012"），公共后缀=3（"789"）
+    # 编辑区段在 old=[3,7)，在 new=[3,4)
+    # delta = 4 - 7 = -3
+    # 标记1 [1,3]：end(3)<=prefix_len(3) → 不变 → [1,3]
+    # 标记2 [7,9]：start(7)>=old_edit_end(7) → 平移 -3 → [4,6]
+    assert len(marks) == 2
+    m1 = next(m for m in marks if m["mark_type"] == "forgot")
+    m2 = next(m for m in marks if m["mark_type"] == "fuzzy")
+    assert (m1["start_pos"], m1["end_pos"]) == (1, 3)
+    assert (m2["start_pos"], m2["end_pos"]) == (4, 6)
+
+
+def test_shift_marks_no_change(db):
+    """正文未变化（或只改了 HTML 标签）：所有标记位置不变"""
+    today = date(2026, 6, 26)
+    item_id = db.create_item("测试", "abcdefg", today, today)
+    db.add_mark(item_id, 1, 4, "forgot")
+    db.update_item(item_id, content="abcdefg")  # 相同纯文本
+    marks = db.get_marks(item_id)
+    assert len(marks) == 1
+    assert (marks[0]["start_pos"], marks[0]["end_pos"]) == (1, 4)
 
 
 def test_shift_marks_clears_when_content_empty(db):
