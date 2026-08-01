@@ -120,3 +120,42 @@
 - 不改变五档评分的语义（perfect / mostly_correct / partial / mostly_forgotten / wrong）。
 - 不删除历史日志；重背过程日志照记。
 - 不实现系统级推送/通知（维持“打开软件查看今日待背诵”的设计）。
+
+## 7. 性能优化
+
+用户反馈：软件经常未响应，搜索等功能慢、卡顿。
+
+已定位的主要瓶颈：
+
+- “全部条目 / 已掌握”面板在每次 `refresh()` 时同步销毁并重建全部卡片
+  （约 300 张卡片 × 每张 6+ 个 widget），并逐条调用 `html_to_plain_text()` 解析 HTML，
+  全部发生在 UI 线程上。
+- 搜索时 `_apply_search_filter()` 对全部卡片执行 `pack_forget()` + `pack()`，
+  并强制 `update_idletasks()` 触发整表布局重算。
+- 搜索用到的纯文本（plain_text）在每次刷新时无差别预计算，即使没有关键词。
+
+优化方案：
+
+1. **列表虚拟化渲染**：全部条目 / 已掌握面板只渲染可视窗口内的卡片
+   （首屏约 30~40 张），滚动接近底部时按需追加渲染；不再一次创建全部卡片。
+2. **搜索改为内存过滤 + 虚拟化渲染**：搜索在完整内存列表上过滤
+   （标题 + 内容纯文本），只渲染匹配且位于可视窗口内的卡片；
+   内容纯文本改为**按需懒计算**（仅在有关键词时解析），避免每次刷新全量解析。
+3. **刷新时复用卡片**：数据变动刷新时尽量复用已渲染卡片、只更新有变化的条目，
+   避免全量 destroy/recreate。
+4. 移除搜索布局强制刷新中的 `update_idletasks()` 全表重算路径。
+5. 移除每次刷新都会执行的 `bring_overdue_to_today()` 数据库写入（见 3.2）。
+
+## 8. 代码与文件清理
+
+1. 根目录一次性调试脚本归档到 `_archive_20260801/`：
+   `check_conflict.py`、`check_items.py`、`check_watermark.py`、
+   `compare_due.py`、`find_diff.py`、`diag_progress.py`、`full_audit.py`、
+   `test_fetch.py`、`test_query.py`、`test_rpc.py`。
+   其中 `test_fetch.py` / `test_query.py` / `test_rpc.py` 会在模块导入时发网络请求，
+   会被 pytest 收集执行，导致测试套件变慢或失败，必须移出测试目录。
+2. 删除 `__pycache__/`、`.pytest_cache/` 等构建缓存目录。
+3. `mobile/` 按 3.1 归档到 `mobile_backup_20260801/`。
+4. 未使用的 Python 代码（如仅被测试引用的调度器方法）视情况移除，并同步更新测试。
+5. `dist/`、`*.exe`、数据库备份文件等大文件不删除，只做说明；
+   是否删除由用户决定。
