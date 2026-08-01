@@ -35,7 +35,8 @@ class Scheduler:
         返回值含 requeue_today 字段：True 表示需追加到今日队列末尾。
         next_review_date 为 None 表示不更新数据库（用于基本正确重背）。
         next_review_date 为空字符串 "" 表示已完成轮次、不再调度。
-        next_review_date 为 today 表示当日需重背（关闭应用后仍可恢复，不丢失）。
+        next_review_date 为 None 表示重背：不更新数据库中的应背日（保持原应背日），
+        条目由调用方排回今日队列重背；未完成则次日继续顺延出现。
         """
         round_intervals = self.ROUND2_INTERVALS if item["round"] == 2 else self.ROUND1_INTERVALS
         current_correct = item["consecutive_correct"]
@@ -86,7 +87,7 @@ class Scheduler:
             return {
                 "status": "learning", "round": item["round"],
                 "interval": 1, "consecutive_correct": 0,
-                "next_review_date": today,
+                "next_review_date": None,
                 "requeue_today": True
             }
 
@@ -113,7 +114,7 @@ class Scheduler:
                 next_date = today + timedelta(days=new_interval)
                 requeue_today = False
             elif requeue_today:
-                next_date = today
+                next_date = None
             else:
                 next_date = today + timedelta(days=new_interval)
 
