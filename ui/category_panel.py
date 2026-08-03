@@ -25,6 +25,10 @@ class CategoryPanel(ctk.CTkFrame):
                       command=self._rename_category).pack(side="left", padx=5)
         ctk.CTkButton(toolbar, text="🗑 删除", width=80, fg_color=COLOR_DANGER, hover_color=COLOR_DANGER_HOVER,
                       font=body_font(), command=self._delete_category).pack(side="left", padx=5)
+        ctk.CTkButton(toolbar, text="⬆ 上移", width=80, fg_color=COLOR_NEUTRAL, hover_color=COLOR_NEUTRAL_HOVER,
+                      font=body_font(), command=lambda: self._move_category("up")).pack(side="left", padx=5)
+        ctk.CTkButton(toolbar, text="⬇ 下移", width=80, fg_color=COLOR_NEUTRAL, hover_color=COLOR_NEUTRAL_HOVER,
+                      font=body_font(), command=lambda: self._move_category("down")).pack(side="left", padx=5)
         ctk.CTkButton(toolbar, text="⟲ 刷新", width=80, fg_color=COLOR_NEUTRAL, hover_color=COLOR_NEUTRAL_HOVER,
                       font=body_font(), command=self.refresh).pack(side="left", padx=5)
         ctk.CTkButton(toolbar, text="🔁 二轮巩固", width=110, fg_color=COLOR_ROUND2, hover_color=COLOR_ROUND2_HOVER,
@@ -48,20 +52,49 @@ class CategoryPanel(ctk.CTkFrame):
         self.refresh()
 
     def refresh(self):
+        # 记录当前展开的文件夹（分类 id），重建后恢复；首次打开无记录，默认全部折叠
+        expanded = self._collect_expanded_ids()
         for item in self.tree.get_children():
             self.tree.delete(item)
+        # 一次性拉取所有分类，内存中建树，避免 N+1 查询
+        all_cats = self.db.get_categories()
+        children_map = {}
+        for cat in all_cats:
+            children_map.setdefault(cat["parent_id"], []).append(cat)
         # "全部" 虚拟节点
         all_node = self.tree.insert("", "end", text="📂 全部条目", values=(None,), open=True)
         # 递归插入分类
-        self._insert_children(all_node, None)
+        self._insert_children(all_node, None, children_map, expanded)
         # 默认选中"全部"
         self.tree.selection_set(all_node)
 
-    def _insert_children(self, parent_node, parent_id):
-        children = self.db.get_category_children(parent_id)
-        for cat in children:
-            node = self.tree.insert(parent_node, "end", text=f"📁 {cat['name']}", values=(cat["id"],), open=True)
-            self._insert_children(node, cat["id"])
+    def _collect_expanded_ids(self) -> set:
+        """遍历当前树，收集处于展开状态的分类 id"""
+        expanded = set()
+
+        def walk(node):
+            values = self.tree.item(node, "values")
+            raw = values[0] if values else None
+            if raw not in (None, "None", ""):
+                try:
+                    cat_id = int(raw)
+                except (ValueError, TypeError):
+                    cat_id = None
+                if cat_id is not None and self.tree.item(node, "open"):
+                    expanded.add(cat_id)
+            for child in self.tree.get_children(node):
+                walk(child)
+
+        for top in self.tree.get_children():
+            walk(top)
+        return expanded
+
+    def _insert_children(self, parent_node, parent_id, children_map, expanded):
+        for cat in children_map.get(parent_id, []):
+            node = self.tree.insert(parent_node, "end", text=f"📁 {cat['name']}",
+                                    values=(cat["id"],),
+                                    open=(cat["id"] in expanded))
+            self._insert_children(node, cat["id"], children_map, expanded)
 
     def _on_select(self, event):
         selection = self.tree.selection()
@@ -131,6 +164,43 @@ class CategoryPanel(ctk.CTkFrame):
             return
         self.db.delete_category(cat_id)
         self.refresh()
+
+    def _move_category(self, direction: str):
+        """上移/下移选中分类（在同级兄弟中排序）"""
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showwarning("提示", "请先选中要移动的分类", parent=self)
+            return
+        values = self.tree.item(selection[0], "values")
+        if not values or values[0] in (None, "None", ""):
+            messagebox.showwarning("提示", "“全部条目”不能移动", parent=self)
+            return
+        cat_id = int(values[0])
+        self.db.move_category(cat_id, direction)
+        self.refresh()
+        # 重新选中刚移动的分类，方便连续操作
+        self._select_category_by_id(cat_id)
+
+    def _select_category_by_id(self, cat_id: int):
+        """根据分类 id 在树中找到对应节点并选中"""
+        for node in self.tree.get_children():
+            if self._select_recursive(node, cat_id):
+                return
+
+    def _select_recursive(self, node, cat_id: int) -> bool:
+        values = self.tree.item(node, "values")
+        if values and values[0] not in (None, "None", ""):
+            try:
+                if int(values[0]) == cat_id:
+                    self.tree.selection_set(node)
+                    self.tree.see(node)
+                    return True
+            except (ValueError, TypeError):
+                pass
+        for child in self.tree.get_children(node):
+            if self._select_recursive(child, cat_id):
+                return True
+        return False
 
     def _start_round2(self):
         """二轮巩固：将选中分类下全部mastered的条目重置为二轮状态"""
