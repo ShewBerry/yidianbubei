@@ -60,6 +60,22 @@ class Database:
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS key_folders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_date TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS key_items (
+                folder_id INTEGER NOT NULL,
+                item_id INTEGER NOT NULL,
+                created_date TEXT NOT NULL,
+                PRIMARY KEY (folder_id, item_id),
+                FOREIGN KEY (folder_id) REFERENCES key_folders(id) ON DELETE CASCADE,
+                FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+            );
         """)
         # 迁移：为旧库的 items 表补 notes 字段（已存在则忽略）
         cols = {row[1] for row in self.conn.execute("PRAGMA table_info(items)")}
@@ -495,6 +511,68 @@ class Database:
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, value))
         self.conn.commit()
+
+    # ===== 重点条目 CRUD =====
+    def create_key_folder(self, name: str) -> int:
+        from datetime import date as _date
+        cursor = self.conn.execute(
+            "SELECT COALESCE(MAX(sort_order), -1) FROM key_folders")
+        new_order = cursor.fetchone()[0] + 1
+        cursor = self.conn.execute(
+            "INSERT INTO key_folders (name, sort_order, created_date) VALUES (?, ?, ?)",
+            (name, new_order, _date.today().isoformat()))
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def rename_key_folder(self, folder_id: int, new_name: str):
+        self.conn.execute(
+            "UPDATE key_folders SET name=? WHERE id=?", (new_name, folder_id))
+        self.conn.commit()
+
+    def delete_key_folder(self, folder_id: int):
+        self.conn.execute("DELETE FROM key_folders WHERE id=?", (folder_id,))
+        self.conn.commit()
+
+    def get_key_folders(self) -> list:
+        cursor = self.conn.execute(
+            "SELECT id, name, sort_order, created_date FROM key_folders "
+            "ORDER BY sort_order, id")
+        return [{"id": r[0], "name": r[1], "sort_order": r[2], "created_date": r[3]}
+                for r in cursor.fetchall()]
+
+    def add_item_to_key_folder(self, folder_id: int, item_id: int):
+        from datetime import date as _date
+        self.conn.execute(
+            "INSERT OR IGNORE INTO key_items (folder_id, item_id, created_date) "
+            "VALUES (?, ?, ?)",
+            (folder_id, item_id, _date.today().isoformat()))
+        self.conn.commit()
+
+    def remove_item_from_key_folder(self, folder_id: int, item_id: int):
+        self.conn.execute(
+            "DELETE FROM key_items WHERE folder_id=? AND item_id=?",
+            (folder_id, item_id))
+        self.conn.commit()
+
+    def get_key_folder_items(self, folder_id: int) -> list:
+        cursor = self.conn.execute(
+            """SELECT i.* FROM items i
+               JOIN key_items ki ON ki.item_id = i.id
+               WHERE ki.folder_id=? AND i.deleted_at IS NULL
+               ORDER BY ki.created_date DESC, i.id DESC""", (folder_id,))
+        return [self._row_to_item(r) for r in cursor.fetchall()]
+
+    def is_item_in_key_folder(self, folder_id: int, item_id: int) -> bool:
+        cursor = self.conn.execute(
+            "SELECT 1 FROM key_items WHERE folder_id=? AND item_id=?",
+            (folder_id, item_id))
+        return cursor.fetchone() is not None
+
+    def get_item_key_folder_ids(self, item_id: int) -> list:
+        cursor = self.conn.execute(
+            "SELECT folder_id FROM key_items WHERE item_id=? ORDER BY created_date",
+            (item_id,))
+        return [r[0] for r in cursor.fetchall()]
 
     def close(self):
         self.conn.close()
