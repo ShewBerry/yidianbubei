@@ -7,6 +7,7 @@ from ui.trash_panel import TrashPanel
 from ui.add_dialog import AddItemDialog
 from ui.category_panel import CategoryPanel
 from ui.stats_panel import StatsPanel
+from ui.key_items_panel import KeyItemsPanel
 from ui.sync_dialog import SyncDialog
 from ui.theme import title_font, heading_font, PRIMARY, PRIMARY_HOVER
 
@@ -42,6 +43,7 @@ class MainWindow(ctk.CTk):
         self.tab_today = self.tabview.add("今日待背诵")
         self.tab_all = self.tabview.add("全部条目")
         self.tab_mastered = self.tabview.add("已掌握")
+        self.tab_key_items = self.tabview.add("重点条目")
         self.tab_category = self.tabview.add("分类管理")
         self.tab_stats = self.tabview.add("统计")
         self.tab_trash = self.tabview.add("回收站")
@@ -53,6 +55,7 @@ class MainWindow(ctk.CTk):
             "今日待背诵": None,
             "全部条目": None,
             "已掌握": None,
+            "重点条目": None,
             "分类管理": None,
             "统计": None,
             "回收站": None,
@@ -62,6 +65,7 @@ class MainWindow(ctk.CTk):
             "今日待背诵": lambda: self._create_review_panel(),
             "全部条目": lambda: self._create_all_items_panel(),
             "已掌握": lambda: self._create_mastered_panel(),
+            "重点条目": lambda: self._create_key_items_panel(),
             "分类管理": lambda: self._create_category_panel(),
             "统计": lambda: self._create_stats_panel(),
             "回收站": lambda: self._create_trash_panel(),
@@ -99,6 +103,12 @@ class MainWindow(ctk.CTk):
 
     def _create_mastered_panel(self):
         panel = MasteredPanel(self.tab_mastered, self.db,
+                              on_data_changed=self._refresh_all)
+        panel.pack(fill="both", expand=True)
+        return panel
+
+    def _create_key_items_panel(self):
+        panel = KeyItemsPanel(self.tab_key_items, self.db, self.scheduler,
                               on_data_changed=self._refresh_all)
         panel.pack(fill="both", expand=True)
         return panel
