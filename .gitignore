@@ -32,3 +32,4 @@ mobile_backup_*/
 
 # 测试临时目录
 .pytest_tmp*/
+.pytest_cache/
