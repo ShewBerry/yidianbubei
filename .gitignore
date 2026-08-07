@@ -29,3 +29,6 @@ _*.py
 # 归档/备份目录（保留在磁盘，不入库）
 _archive_*/
 mobile_backup_*/
+
+# 测试临时目录
+.pytest_tmp*/
