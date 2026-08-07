@@ -111,6 +111,7 @@ def calibrate_cloud():
     from sync.synchronizer import Synchronizer
 
     db = Database(str(DB_PATH))
+    db.init()  # 确保本地已建 key_folders / key_items 等新表
     sync = Synchronizer(db)
     print("步骤1: 全量上传本地数据到云端 ...")
     stats = sync.full_upload()
@@ -120,8 +121,12 @@ def calibrate_cloud():
     conn = sqlite3.connect(str(DB_PATH))
     for table in ("categories", "items", "review_logs", "item_marks",
                   "key_folders", "key_items"):
-        cloud_rows = fetch_all(
-            table, order="folder_local_id.asc" if table == "key_items" else "local_id.asc")
+        try:
+            cloud_rows = fetch_all(
+                table, order="folder_local_id.asc" if table == "key_items" else "local_id.asc")
+        except Exception as e:
+            print(f"  {table}: 云端读取失败（请先执行 sync/schema.sql 建表）: {e}")
+            continue
         if table == "key_items":
             local_pairs = {(r[0], r[1]) for r in conn.execute(
                 "SELECT folder_id, item_id FROM key_items")}
