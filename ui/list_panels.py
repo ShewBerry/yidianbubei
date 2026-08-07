@@ -37,16 +37,18 @@ def _make_link_button(parent, text, command, bg, fg=COLOR_NEUTRAL, hover_fg=COLO
 class AllItemsPanel(VirtualCardList):
     """全部条目面板：虚拟化卡片列表 + 搜索"""
 
-    def __init__(self, parent, db, scheduler: Scheduler, on_data_changed=None):
+    def __init__(self, parent, db, scheduler: Scheduler, on_data_changed=None,
+                 title: str = "全部条目"):
         super().__init__(parent, db)
         self.scheduler = scheduler
         self.on_data_changed = on_data_changed
         self.filter_category_id = None
+        self.key_folder_id = None
         self._search_after_id = None
 
         header_frame = ctk.CTkFrame(self, fg_color="transparent")
         header_frame.pack(fill="x", padx=15, pady=(15, 5))
-        ctk.CTkLabel(header_frame, text="全部条目",
+        ctk.CTkLabel(header_frame, text=title,
                      font=title_font()).pack(side="left")
         self.filter_label = ctk.CTkLabel(header_frame, text="（全部）",
                                           text_color=COLOR_TEXT_SECONDARY,
@@ -65,6 +67,8 @@ class AllItemsPanel(VirtualCardList):
         self.refresh()
 
     def _load_items(self):
+        if self.key_folder_id is not None:
+            return self.db.get_key_folder_items(self.key_folder_id)
         if self.filter_category_id is None:
             return self.db.get_active_items()
         elif self.filter_category_id == "uncategorized":
@@ -174,6 +178,13 @@ class AllItemsPanel(VirtualCardList):
         ctk.CTkButton(btn_frame, text="补签", fg_color=COLOR_WARN,
                       hover_color=COLOR_WARN_HOVER, width=70, font=body_font(),
                       command=lambda: self._backfill_review(item)).pack(side="right", padx=(0, 5))
+        ctk.CTkButton(btn_frame, text="⭐ 加入重点", fg_color=COLOR_WARN,
+                      hover_color=COLOR_WARN_HOVER, width=80, font=body_font(),
+                      command=lambda: self._add_to_key_folder(item)).pack(side="right", padx=(0, 5))
+        if self.key_folder_id is not None:
+            ctk.CTkButton(btn_frame, text="移出", fg_color=COLOR_NEUTRAL,
+                          hover_color=COLOR_NEUTRAL_HOVER, width=60, font=body_font(),
+                          command=lambda: self._remove_from_key_folder(item)).pack(side="right", padx=(0, 5))
 
     def _expand_inplace(self, card, expand_container, item):
         """就地展开：只重建展开区，不触发整表 refresh"""
@@ -249,6 +260,21 @@ class AllItemsPanel(VirtualCardList):
         self.db.update_item(item["id"], **update_fields)
         self.db.log_review(item["id"], review_date, sched_result["round"], result,
                            sched_result["interval"])
+        self._notify_data_changed()
+
+    def _add_to_key_folder(self, item):
+        from ui.key_folder_dialog import KeyFolderDialog
+        KeyFolderDialog(self, self.db, item["id"],
+                        on_confirm=lambda fid: self._after_key_add(fid, item))
+
+    def _after_key_add(self, folder_id, item):
+        self.db.add_item_to_key_folder(folder_id, item["id"])
+        self._notify_data_changed()
+
+    def _remove_from_key_folder(self, item):
+        if self.key_folder_id is None:
+            return
+        self.db.remove_item_from_key_folder(self.key_folder_id, item["id"])
         self._notify_data_changed()
 
 
@@ -349,6 +375,9 @@ class MasteredPanel(VirtualCardList):
         ctk.CTkButton(btn_frame, text="编辑", fg_color=COLOR_NEUTRAL,
                       hover_color=COLOR_NEUTRAL_HOVER, width=70, font=body_font(),
                       command=lambda: self._edit_item(item)).pack(side="right", padx=(0, 5))
+        ctk.CTkButton(btn_frame, text="⭐ 加入重点", fg_color=COLOR_WARN,
+                      hover_color=COLOR_WARN_HOVER, width=80, font=body_font(),
+                      command=lambda: self._add_to_key_folder(item)).pack(side="right", padx=(0, 5))
 
     def _expand_inplace(self, card, expand_container, item):
         """就地展开：只重建展开区，不触发整表 refresh"""
@@ -399,3 +428,12 @@ class MasteredPanel(VirtualCardList):
     def _show_history(self, item):
         from ui.history_dialog import ReviewHistoryDialog
         ReviewHistoryDialog(self, self.db, item)
+
+    def _add_to_key_folder(self, item):
+        from ui.key_folder_dialog import KeyFolderDialog
+        KeyFolderDialog(self, self.db, item["id"],
+                        on_confirm=lambda fid: self._after_key_add(fid, item))
+
+    def _after_key_add(self, folder_id, item):
+        self.db.add_item_to_key_folder(folder_id, item["id"])
+        self._notify_data_changed()
