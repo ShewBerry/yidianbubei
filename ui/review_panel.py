@@ -1,6 +1,7 @@
 # ui/review_panel.py
 import tkinter as tk
 import customtkinter as ctk
+from tkinter import messagebox
 from datetime import date
 from scheduler import Scheduler
 from ui.theme import (
@@ -150,6 +151,9 @@ class ReviewPanel(ctk.CTkFrame):
                      font=review_title_font()).pack(side="left")
         ctk.CTkLabel(header, text=stage_desc, text_color=COLOR_TEXT_SECONDARY,
                      font=body_font()).pack(side="right")
+        ctk.CTkButton(header, text="⭐ 加入重点", width=90, height=28,
+                      fg_color="transparent", border_width=1, font=body_font(),
+                      command=lambda: self._mark_key(item)).pack(side="right", padx=(6, 0))
 
         if current.get("show_content"):
             # 评分按钮固定底部（先 pack side=bottom）
@@ -266,6 +270,15 @@ class ReviewPanel(ctk.CTkFrame):
         if self.queue:
             self.queue[0]["show_content"] = True
             self._render_current_card()
+
+    def _mark_key(self, item):
+        from ui.key_folder_dialog import KeyFolderDialog
+
+        def on_confirm(folder_id):
+            self.db.add_item_to_key_folder(folder_id, item["id"])
+            messagebox.showinfo("提示", "已加入重点条目", parent=self)
+
+        KeyFolderDialog(self, self.db, item["id"], on_confirm=on_confirm)
 
     def _handle_review(self, result: str):
         if not self.queue:
