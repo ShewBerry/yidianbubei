@@ -118,8 +118,21 @@ def calibrate_cloud():
         print(f"  {table}: 上传 {count} 条")
 
     conn = sqlite3.connect(str(DB_PATH))
-    for table in ("categories", "items", "review_logs", "item_marks"):
-        cloud_rows = fetch_all(table, order="local_id.asc")
+    for table in ("categories", "items", "review_logs", "item_marks",
+                  "key_folders", "key_items"):
+        cloud_rows = fetch_all(
+            table, order="folder_local_id.asc" if table == "key_items" else "local_id.asc")
+        if table == "key_items":
+            local_pairs = {(r[0], r[1]) for r in conn.execute(
+                "SELECT folder_id, item_id FROM key_items")}
+            cloud_pairs = {(r["folder_local_id"], r["item_local_id"]) for r in cloud_rows}
+            extra = sorted(cloud_pairs - local_pairs)
+            for fid, iid in extra:
+                _do_request("DELETE", "key_items", query={
+                    "folder_local_id": f"eq.{fid}",
+                    "item_local_id": f"eq.{iid}"})
+            print(f"  key_items: 云端 {len(cloud_pairs)} 条，删除多余 {len(extra)} 条")
+            continue
         local_ids = {r[0] for r in conn.execute(f"SELECT id FROM {table}")}
         cloud_ids = {r["local_id"] for r in cloud_rows}
         extra = sorted(cloud_ids - local_ids)

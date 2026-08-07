@@ -25,7 +25,8 @@ from sync.client import SyncError, AuthExpiredError
 
 # 表名映射：本地表 → 云端表
 # 云端表多了 user_id 字段，需要在上传时注入
-TABLES = ["categories", "items", "review_logs", "item_marks"]
+TABLES = ["categories", "items", "review_logs", "item_marks",
+          "key_folders", "key_items"]
 
 # 每张表的字段映射：本地列名 → 云端列名
 # 大部分一致，只是云端把 id 改成 local_id，把 item_id 改成 item_local_id
@@ -35,6 +36,8 @@ FIELD_MAP = {
     "items": {"id": "local_id", "interval": "interval_days"},
     "review_logs": {"id": "local_id", "item_id": "item_local_id"},
     "item_marks": {"id": "local_id", "item_id": "item_local_id"},
+    "key_folders": {"id": "local_id"},
+    "key_items": {"folder_id": "folder_local_id", "item_id": "item_local_id"},
     "settings": {},
 }
 

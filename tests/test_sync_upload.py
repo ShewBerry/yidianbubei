@@ -24,6 +24,12 @@ def test_tables_do_not_include_settings():
     assert "settings" not in TABLES
 
 
+def test_tables_include_key_folders_and_key_items():
+    """重点条目两张表应加入同步备份"""
+    assert "key_folders" in TABLES
+    assert "key_items" in TABLES
+
+
 def test_incremental_upload_all_uploads_items_but_not_settings(sync, db, monkeypatch):
     db.create_item("t", "c", date(2026, 7, 26), date(2026, 7, 26))
     uploaded = []
