@@ -20,6 +20,9 @@ class VirtualCardList(ctk.CTkFrame):
         self.db = db
         self.expanded_item_id = None
         self.search_keyword = ""
+        # 空状态文案（可被子类/调用方按面板语义覆盖）
+        self.empty_title = "还没有条目"
+        self.empty_hint = "点击右上角“+ 新建背诵”开始添加"
         self._items = []          # 分类过滤后的完整条目列表
         self._filtered = []       # 再应用搜索后的有序列表
         self._visible_end = 0     # 已渲染的卡片数
@@ -46,6 +49,8 @@ class VirtualCardList(ctk.CTkFrame):
 
     def refresh(self):
         self._pending_scroll = self.scroll_frame._parent_canvas.yview()[0]
+        # 条目数据可能已被编辑：清空纯文本缓存，避免搜索命中旧内容
+        self._plain_cache.clear()
         self._items = self._load_items()
         self._rebuild_filtered()
         self._reset_view()
@@ -72,9 +77,19 @@ class VirtualCardList(ctk.CTkFrame):
     def set_search_keyword(self, keyword: str):
         self.search_keyword = keyword if keyword else ""
         self.expanded_item_id = None
-        self._pending_scroll = None
+        # 搜索/清空搜索后必须回到顶部：_pending_scroll=0.0 让分批发渲染完成后
+        # 也停在顶部；立即 _scroll_to_top 避免渲染间隙显示旧滚动位置
+        self._pending_scroll = 0.0
         self._rebuild_filtered()
         self._reset_view()
+        self._scroll_to_top()
+
+    def _scroll_to_top(self):
+        """重置列表滚动位置到顶部（搜索结果/空状态均从顶部显示）。"""
+        try:
+            self.scroll_frame._parent_canvas.yview_moveto(0.0)
+        except Exception:
+            pass
 
     # ============ 渲染 ============
 
@@ -163,8 +178,8 @@ class VirtualCardList(ctk.CTkFrame):
                 self._empty_hint.configure(
                     text=f"没有标题或内容包含“{self.search_keyword}”的条目")
             else:
-                self._empty_title.configure(text="还没有条目")
-                self._empty_hint.configure(text="点击右上角“+ 新建背诵”开始添加")
+                self._empty_title.configure(text=self.empty_title)
+                self._empty_hint.configure(text=self.empty_hint)
             self._empty_frame.pack(pady=60)
         else:
             if hasattr(self, "_empty_frame") and self._empty_frame.winfo_exists():

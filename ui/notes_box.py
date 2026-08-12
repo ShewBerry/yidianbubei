@@ -1,6 +1,7 @@
 # ui/notes_box.py
 import customtkinter as ctk
 from ui.theme import small_font, body_font, COLOR_TEXT_SECONDARY
+from ui.errors import show_write_error
 
 
 class NotesBox(ctk.CTkFrame):
@@ -25,10 +26,13 @@ class NotesBox(ctk.CTkFrame):
         self.textbox.bind("<FocusOut>", self._on_focus_out)
 
     def _on_focus_out(self, event=None):
-        new_notes = self.textbox.get("1.0", "end").rstrip("\n")
-        if new_notes != self._initial_notes:
-            self.db.update_item(self.item_id, notes=new_notes)
-            self._initial_notes = new_notes
+        try:
+            new_notes = self.textbox.get("1.0", "end").rstrip("\n")
+            if new_notes != self._initial_notes:
+                self.db.update_item(self.item_id, notes=new_notes)
+                self._initial_notes = new_notes
+        except Exception as e:
+            show_write_error(self, e, "保存笔记")
 
     def destroy(self):
         # 组件销毁前再保存一次，避免遗漏

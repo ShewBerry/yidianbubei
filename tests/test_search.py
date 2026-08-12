@@ -16,6 +16,9 @@ class FakeDB:
     def get_active_items(self):
         return self._items
 
+    def get_all_items(self):
+        return self._items
+
     def get_items_by_category(self, cid, include_descendants=False):
         return self._items
 
@@ -38,9 +41,9 @@ class FakeDB:
         pass
 
 
-def make_item(iid, title, content, category_id=None):
+def make_item(iid, title, content, category_id=None, status="learning"):
     return {"id": iid, "title": title, "content": content,
-            "category_id": category_id, "notes": "", "status": "learning",
+            "category_id": category_id, "notes": "", "status": status,
             "next_review_date": "", "round": 1, "interval": 1,
             "consecutive_correct": 0}
 
@@ -124,3 +127,20 @@ def test_search_combined_with_category_filter(panel_factory):
     panel.refresh()
     panel.set_search_keyword("宋词")
     assert [i["id"] for i in panel._filtered] == [2]
+
+
+def test_search_covers_mastered_items(panel_factory):
+    """回归：全部条目搜索必须覆盖已掌握条目（不能被状态过滤排除）"""
+    items = [make_item(1, "刑法总则", "内容"),
+             make_item(2, "犯罪构成", "内容", status="mastered"),
+             make_item(3, "正当防卫", "内容", status="mastered")]
+    panel = panel_factory(items)
+    # 全部条目面板加载应包含所有状态
+    assert {i["id"] for i in panel._items} == {1, 2, 3}
+    # 搜索已掌握条目的名称应能命中
+    panel.set_search_keyword("犯罪构成")
+    assert [i["id"] for i in panel._filtered] == [2]
+    panel.set_search_keyword("正当防卫")
+    assert [i["id"] for i in panel._filtered] == [3]
+    panel.set_search_keyword("不存在的词")
+    assert panel._filtered == []

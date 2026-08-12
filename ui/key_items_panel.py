@@ -8,6 +8,7 @@ from ui.theme import (title_font, body_font, small_font,
                       COLOR_DANGER, COLOR_DANGER_HOVER,
                       COLOR_NEUTRAL, COLOR_NEUTRAL_HOVER,
                       COLOR_TEXT_SECONDARY, PRIMARY, PRIMARY_HOVER)
+from ui.errors import show_write_error
 
 
 class KeyItemsPanel(ctk.CTkFrame):
@@ -50,7 +51,17 @@ class KeyItemsPanel(ctk.CTkFrame):
 
     def refresh(self):
         self._refresh_folders()
-        if self.current_folder_id is None and self._folder_buttons:
+        if not self._folder_buttons:
+            # 没有任何重点文件夹：显式进入空模式，避免 key_folder_id=None
+            # 时 AllItemsPanel 回退显示全部条目（错误上下文）。
+            self.current_folder_id = None
+            self.item_list.empty_mode = True
+            self.item_list.empty_title = "还没有重点文件夹"
+            self.item_list.empty_hint = "点击右上角“＋ 新建文件夹”创建第一个文件夹"
+            self.item_list.refresh()
+            return
+        self.item_list.empty_mode = False
+        if self.current_folder_id is None:
             self._select_folder(next(iter(self._folder_buttons)))
         else:
             self.item_list.key_folder_id = self.current_folder_id
@@ -86,9 +97,15 @@ class KeyItemsPanel(ctk.CTkFrame):
         name = simpledialog.askstring("新建重点文件夹", "请输入文件夹名称：", parent=self)
         if not name or not name.strip():
             return
-        fid = self.db.create_key_folder(name.strip())
+        try:
+            fid = self.db.create_key_folder(name.strip())
+        except Exception as e:
+            show_write_error(self, e, "新建文件夹")
+            return
         self.refresh()
         self._select_folder(fid)
+        if self.on_data_changed:
+            self.on_data_changed()
 
     def _rename_folder(self):
         if self.current_folder_id is None:
@@ -100,9 +117,15 @@ class KeyItemsPanel(ctk.CTkFrame):
                                           initialvalue=old_name, parent=self)
         if not new_name or not new_name.strip():
             return
-        self.db.rename_key_folder(self.current_folder_id, new_name.strip())
+        try:
+            self.db.rename_key_folder(self.current_folder_id, new_name.strip())
+        except Exception as e:
+            show_write_error(self, e, "重命名文件夹")
+            return
         self.refresh()
         self._select_folder(self.current_folder_id)
+        if self.on_data_changed:
+            self.on_data_changed()
 
     def _delete_folder(self):
         if self.current_folder_id is None:
@@ -113,6 +136,12 @@ class KeyItemsPanel(ctk.CTkFrame):
                 "确定删除该重点文件夹吗？\n文件夹内的条目不会被删除，只会取消收藏。",
                 parent=self):
             return
-        self.db.delete_key_folder(self.current_folder_id)
+        try:
+            self.db.delete_key_folder(self.current_folder_id)
+        except Exception as e:
+            show_write_error(self, e, "删除文件夹")
+            return
         self.current_folder_id = None
         self.refresh()
+        if self.on_data_changed:
+            self.on_data_changed()

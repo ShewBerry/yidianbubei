@@ -26,32 +26,31 @@ def backup_db() -> Path:
 
 
 def replay_item_state(conn, item_id):
-    """按新调度语义重放日志：返回 (state, expected_nrd)。
-    重背结果不更新日期，因此 expected_nrd 保持上一次的有效值。"""
+    """按新调度语义（有限状态机）重放日志：返回 (state, expected_nrd)。
+
+    终止类「完全正确」结束本轮循环，最终效力按本轮历史最低档（排除基本正确）计算；
+    延续类仅进入下一轮，调度状态不变。expected_nrd 在循环结束时更新。"""
     logs = conn.execute(
         "SELECT id, review_date, result FROM review_logs "
         "WHERE item_id=? ORDER BY id", (item_id,)).fetchall()
     scheduler = Scheduler()
     state = {"round": 1, "interval": 0, "consecutive_correct": 0, "status": "learning"}
     expected_nrd = None
+    session_results = []
     for log in logs:
         log_date = date.fromisoformat(log["review_date"])
-        prior_today = conn.execute(
-            "SELECT COUNT(*) FROM review_logs WHERE item_id=? AND review_date=? AND id < ?",
-            (item_id, log["review_date"], log["id"])).fetchone()[0]
-        forgotten_count = conn.execute(
-            "SELECT COUNT(*) FROM review_logs WHERE item_id=? AND review_date=? "
-            "AND result='mostly_forgotten' AND id < ?",
-            (item_id, log["review_date"], log["id"])).fetchone()[0]
-        res = scheduler.process_review(
-            state, log_date, log["result"],
-            is_retest=prior_today > 0,
-            today_forgotten_count=forgotten_count)
-        state = {"round": res["round"], "interval": res["interval"],
-                 "consecutive_correct": res["consecutive_correct"],
-                 "status": res["status"]}
-        if res["next_review_date"] is not None:
-            expected_nrd = res["next_review_date"]
+        result = log["result"]
+        session_results.append(result)
+        if result == "perfect":
+            # 本轮循环结束：按历史最低档最终化
+            res = scheduler.compute_finalize(state, log_date, session_results)
+            state = {"round": res["round"], "interval": res["interval"],
+                     "consecutive_correct": res["consecutive_correct"],
+                     "status": res["status"]}
+            if res["next_review_date"] is not None:
+                expected_nrd = res["next_review_date"]
+            session_results = []  # 开始新的循环
+        # else: 延续类仅推进轮次，状态不变
     return state, expected_nrd
 
 

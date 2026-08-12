@@ -2,17 +2,19 @@
 import tkinter as tk
 import customtkinter as ctk
 from tkinter import messagebox
-from datetime import date
+from datetime import date, timedelta
 from scheduler import Scheduler
 from ui.theme import (
-    title_font, heading_font, review_title_font, body_font, small_font, big_font,
+    title_font, heading_font, review_title_font, body_font, small_font,
     COLOR_PERFECT, COLOR_PERFECT_HOVER,
     COLOR_MOSTLY, COLOR_MOSTLY_HOVER,
     COLOR_PARTIAL, COLOR_PARTIAL_HOVER,
     COLOR_FORGOTTEN, COLOR_FORGOTTEN_HOVER,
     COLOR_WRONG, COLOR_WRONG_HOVER,
-    COLOR_TEXT_SECONDARY, PRIMARY,
+    COLOR_TEXT_PRIMARY, COLOR_TEXT_SECONDARY, PRIMARY, FONT_FAMILY,
+    BTN_OUTLINE_WARN_BORDER, BTN_OUTLINE_WARN_TEXT, BTN_OUTLINE_WARN_HOVER,
 )
+from ui.errors import show_write_error
 from ui.markable_textbox import MarkableTextbox
 from ui.notes_box import NotesBox
 
@@ -29,7 +31,7 @@ class ReviewPanel(ctk.CTkFrame):
         self.total_count = 0
 
         self.title_label = ctk.CTkLabel(self, text="今日待背诵", font=title_font())
-        self.title_label.pack(pady=(15, 5))
+        self.title_label.pack(anchor="w", padx=15, pady=(15, 5))
 
         self.progress_label = ctk.CTkLabel(self, text="", text_color=COLOR_TEXT_SECONDARY,
                                            font=body_font())
@@ -39,6 +41,12 @@ class ReviewPanel(ctk.CTkFrame):
         self.progress_bar = ctk.CTkProgressBar(self, progress_color=PRIMARY, height=6)
         self.progress_bar.set(0)
         self.progress_bar.pack(fill="x", padx=60, pady=(0, 10))
+
+        # 明日待背诵数量提示（随进度刷新同步更新）
+        self.tomorrow_label = ctk.CTkLabel(
+            self, text="明日待背诵：0 条", text_color=COLOR_TEXT_SECONDARY,
+            font=small_font())
+        self.tomorrow_label.pack(pady=(0, 5))
 
         self.card_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.card_frame.pack(fill="both", expand=True, padx=30, pady=(0, 15))
@@ -128,6 +136,16 @@ class ReviewPanel(ctk.CTkFrame):
             self.progress_label.configure(
                 text=f"{self.completed_count} / {self.total_count} 已完成")
             self.progress_bar.set(self.completed_count / self.total_count)
+        self._update_tomorrow_count()
+
+    def _update_tomorrow_count(self):
+        """刷新明日待背诵条目数（评分可能把条目排到明天，需同步更新）。"""
+        try:
+            tomorrow = date.today() + timedelta(days=1)
+            count = self.db.count_items_due_on(tomorrow)
+            self.tomorrow_label.configure(text=f"明日待背诵：{count} 条")
+        except Exception:
+            pass
 
     def _render_current_card(self):
         for widget in self.card_frame.winfo_children():
@@ -142,7 +160,7 @@ class ReviewPanel(ctk.CTkFrame):
         stage_desc = self.scheduler.stage_description(
             item["consecutive_correct"], item["round"])
 
-        card = ctk.CTkFrame(self.card_frame, corner_radius=12)
+        card = ctk.CTkFrame(self.card_frame, corner_radius=10)
         card.pack(fill="both", expand=True, pady=10)
 
         header = ctk.CTkFrame(card, fg_color="transparent")
@@ -152,7 +170,9 @@ class ReviewPanel(ctk.CTkFrame):
         ctk.CTkLabel(header, text=stage_desc, text_color=COLOR_TEXT_SECONDARY,
                      font=body_font()).pack(side="right")
         ctk.CTkButton(header, text="⭐ 加入重点", width=90, height=28,
-                      fg_color="transparent", border_width=1, font=body_font(),
+                      fg_color="transparent", border_width=2,
+                      border_color=BTN_OUTLINE_WARN_BORDER, text_color=BTN_OUTLINE_WARN_TEXT,
+                      hover_color=BTN_OUTLINE_WARN_HOVER, font=body_font(),
                       command=lambda: self._mark_key(item)).pack(side="right", padx=(6, 0))
 
         if current.get("show_content"):
@@ -170,6 +190,7 @@ class ReviewPanel(ctk.CTkFrame):
                           command=lambda: self._handle_review("mostly_correct")).pack(side="left", padx=4, expand=True)
             ctk.CTkButton(btn_frame, text="🤔 部分正确", height=42,
                           fg_color=COLOR_PARTIAL, hover_color=COLOR_PARTIAL_HOVER,
+                          text_color=COLOR_TEXT_PRIMARY,
                           font=heading_font(),
                           command=lambda: self._handle_review("partial")).pack(side="left", padx=3, expand=True)
             ctk.CTkButton(btn_frame, text="😕 较多遗忘", height=42,
@@ -216,7 +237,6 @@ class ReviewPanel(ctk.CTkFrame):
         这样无论窗口当前多大，都能按比例正确恢复，避免小窗口时被截断。
         用多次重试确保窗口已渲染完成（winfo_height>1）。
         """
-        saved_ratio = float(self.db.get_setting("content_paned_ratio", "0.75"))
         attempts = [50, 100, 200, 400]  # 多次重试，等窗口真正渲染完成
         def _apply(attempt_idx=0):
             try:
@@ -225,17 +245,42 @@ class ReviewPanel(ctk.CTkFrame):
                     # 窗口未就绪，稍后重试
                     self.after(attempts[attempt_idx + 1], lambda: _apply(attempt_idx + 1))
                     return
-                # 按比例计算内容框高度
-                h = int(paned_h * saved_ratio)
-                # 限制范围：至少120，最多留100给笔记
-                h = max(120, min(h, paned_h - 100)) if paned_h > 220 else 120
-                self.paned.sash_place(0, 0, h)
+                self._apply_sash_ratio()
             except Exception:
                 if attempt_idx < len(attempts) - 1:
                     self.after(attempts[attempt_idx + 1], lambda: _apply(attempt_idx + 1))
         self.after(attempts[0], _apply)
         # 拖拽 sash 释放后自动保存新比例
         self.paned.bind("<ButtonRelease-1>", lambda _e: self._save_sash_position(), add="+")
+        # 窗口尺寸变化（放大/全屏）时按比例跟随：
+        # 否则内容框高度固定为展开瞬间的值，全屏后正文栏会显得很窄
+        self.paned.bind("<Configure>", self._on_paned_resize, add="+")
+
+    def _apply_sash_ratio(self):
+        """按保存的比例设置内容框高度（内容框占 paned 总高度的比例）。"""
+        try:
+            paned_h = self.paned.winfo_height()
+            if paned_h <= 1:
+                return
+            ratio = float(self.db.get_setting("content_paned_ratio", "0.75"))
+            h = int(paned_h * ratio)
+            # 限制范围：至少120，最多留100给笔记
+            h = max(120, min(h, paned_h - 100)) if paned_h > 220 else 120
+            self.paned.sash_place(0, 0, h)
+        except Exception:
+            pass
+
+    def _on_paned_resize(self, event=None):
+        """paned 总高度变化（窗口缩放/全屏）时按比例调整内容框高度。
+        防抖避免连续 Configure 事件反复设置 sash；拖拽 sash 不改变 paned 总高，不会触发此回调。"""
+        if event is None:
+            return
+        try:
+            if hasattr(self, "_sash_resize_id") and self._sash_resize_id is not None:
+                self.after_cancel(self._sash_resize_id)
+            self._sash_resize_id = self.after(120, self._apply_sash_ratio)
+        except Exception:
+            pass
 
     def _save_sash_position(self):
         """保存当前 sash 位置（比例）到 settings"""
@@ -250,11 +295,11 @@ class ReviewPanel(ctk.CTkFrame):
 
     def _render_complete_state(self):
         """今日背诵完成的庆祝态"""
-        card = ctk.CTkFrame(self.card_frame, corner_radius=12)
+        card = ctk.CTkFrame(self.card_frame, corner_radius=10)
         card.pack(fill="both", expand=True, pady=10)
 
         ctk.CTkLabel(card, text="🎉", font=ctk.CTkFont(size=48)).pack(pady=(50, 10))
-        ctk.CTkLabel(card, text="今日背诵完成", font=ctk.CTkFont(family="微软雅黑", size=22, weight="bold")).pack(pady=5)
+        ctk.CTkLabel(card, text="今日背诵完成", font=ctk.CTkFont(family=FONT_FAMILY, size=22, weight="bold")).pack(pady=5)
 
         # 显示今日统计
         today = date.today()
@@ -275,8 +320,15 @@ class ReviewPanel(ctk.CTkFrame):
         from ui.key_folder_dialog import KeyFolderDialog
 
         def on_confirm(folder_id):
-            self.db.add_item_to_key_folder(folder_id, item["id"])
+            try:
+                self.db.add_item_to_key_folder(folder_id, item["id"])
+            except Exception as e:
+                show_write_error(self, e, "加入重点")
+                return
             messagebox.showinfo("提示", "已加入重点条目", parent=self)
+            # 与列表面板入口保持一致：触发刷新与云端防抖同步
+            if self.on_data_changed:
+                self.on_data_changed()
 
         KeyFolderDialog(self, self.db, item["id"], on_confirm=on_confirm)
 
@@ -294,37 +346,24 @@ class ReviewPanel(ctk.CTkFrame):
             except Exception:
                 pass
 
-        # 较多遗忘需查询今日已回退次数以应用上限
-        today_forgotten_count = 0
-        if result == "mostly_forgotten":
-            today_forgotten_count = self.db.get_today_forgotten_count(item["id"], today)
+        # 记录本轮评分历史（用于结束时的最终效力计算）
+        current.setdefault("session_results", [])
+        current["session_results"].append(result)
 
-        sched_result = self.scheduler.process_review(
-            item, today, result,
-            is_retest=current["is_retest"],
-            today_forgotten_count=today_forgotten_count)
-
-        # 更新数据库
-        update_fields = {
-            "status": sched_result["status"],
-            "round": sched_result["round"],
-            "interval": sched_result["interval"],
-            "consecutive_correct": sched_result["consecutive_correct"],
-        }
-        if sched_result["next_review_date"] is not None:
-            update_fields["next_review_date"] = sched_result["next_review_date"]
-        self.db.update_item(item["id"], **update_fields)
-
-        # 记录日志
-        self.db.log_review(item["id"], today, sched_result["round"], result,
-                           sched_result["interval"])
+        # 调度评分并写库（失败时提示并中止，避免队列状态与库不一致）
+        try:
+            sched_result = self.scheduler.apply(
+                self.db, item, today, result,
+                is_retest=current["is_retest"],
+                session_results=current["session_results"])
+        except Exception as e:
+            show_write_error(self, e, "记录评分")
+            return
 
         if sched_result["requeue_today"]:
-            # 移到队列末尾，标记为重背
+            # 延续类：移到队列末尾重背，调度状态保持不变（效力在结束时才确定）
             current["is_retest"] = True
             current["show_content"] = False
-            # 更新item字典以反映新状态（update_fields 已含非None的next_review_date）
-            item.update(update_fields)
             self.queue.pop(0)
             self.queue.append(current)
         else:

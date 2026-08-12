@@ -11,11 +11,8 @@ build/
 dist/
 *.spec
 
-# 数据库（含用户数据，绝不入库）
-data/*.db
-data/*.db-journal
-data/*.db-wal
-data/*.db-shm
+# 用户数据 / 数据库 / 备份 / 日志 / 报告（隐私，绝不入库）
+data/
 
 # 同步凭证（敏感，绝不入库）
 data/sync_auth.json
@@ -25,6 +22,13 @@ data/sync_config.json
 _inspect_db.py
 _*.py
 *.tmp
+
+# Reasonix 内部配置与目录
+.reasonix/
+reasonix.toml
+
+# 打包产物
+*.exe
 
 # 归档/备份目录（保留在磁盘，不入库）
 _archive_*/

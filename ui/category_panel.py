@@ -4,6 +4,7 @@ from datetime import date
 from ui.theme import (title_font, heading_font, body_font,
                       COLOR_DANGER, COLOR_DANGER_HOVER, COLOR_ROUND2, COLOR_ROUND2_HOVER,
                       COLOR_NEUTRAL, COLOR_NEUTRAL_HOVER, COLOR_TEXT_SECONDARY)
+from ui.errors import show_write_error
 
 
 class CategoryPanel(ctk.CTkFrame):
@@ -14,9 +15,10 @@ class CategoryPanel(ctk.CTkFrame):
         self.on_category_selected = on_category_selected
         self.selected_category_id = None  # None 表示"全部"
 
-        ctk.CTkLabel(self, text="分类管理", font=title_font()).pack(pady=(15, 10))
+        ctk.CTkLabel(self, text="分类管理", font=title_font()).pack(anchor="w", padx=15, pady=(15, 10))
 
-        # 工具栏
+        # 工具栏：高频操作一键，低频操作（上移/下移/刷新）折叠进“更多”菜单，
+        # 避免窄窗口（minsize 700）下工具栏溢出
         toolbar = ctk.CTkFrame(self, fg_color="transparent")
         toolbar.pack(fill="x", padx=15, pady=(0, 5))
         ctk.CTkButton(toolbar, text="＋ 新建", width=80, font=body_font(),
@@ -25,14 +27,12 @@ class CategoryPanel(ctk.CTkFrame):
                       command=self._rename_category).pack(side="left", padx=5)
         ctk.CTkButton(toolbar, text="🗑 删除", width=80, fg_color=COLOR_DANGER, hover_color=COLOR_DANGER_HOVER,
                       font=body_font(), command=self._delete_category).pack(side="left", padx=5)
-        ctk.CTkButton(toolbar, text="⬆ 上移", width=80, fg_color=COLOR_NEUTRAL, hover_color=COLOR_NEUTRAL_HOVER,
-                      font=body_font(), command=lambda: self._move_category("up")).pack(side="left", padx=5)
-        ctk.CTkButton(toolbar, text="⬇ 下移", width=80, fg_color=COLOR_NEUTRAL, hover_color=COLOR_NEUTRAL_HOVER,
-                      font=body_font(), command=lambda: self._move_category("down")).pack(side="left", padx=5)
-        ctk.CTkButton(toolbar, text="⟲ 刷新", width=80, fg_color=COLOR_NEUTRAL, hover_color=COLOR_NEUTRAL_HOVER,
-                      font=body_font(), command=self.refresh).pack(side="left", padx=5)
         ctk.CTkButton(toolbar, text="🔁 二轮巩固", width=110, fg_color=COLOR_ROUND2, hover_color=COLOR_ROUND2_HOVER,
                       font=body_font(), command=self._start_round2).pack(side="left", padx=5)
+        self._more_var = ctk.StringVar(value="⋯ 更多")
+        ctk.CTkOptionMenu(toolbar, values=["⟲ 刷新", "⬆ 上移", "⬇ 下移"],
+                          variable=self._more_var, width=90, font=body_font(),
+                          command=self._on_more_menu).pack(side="left", padx=5)
 
         # 树形视图容器
         tree_container = ctk.CTkFrame(self)
@@ -50,6 +50,16 @@ class CategoryPanel(ctk.CTkFrame):
 
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
         self.refresh()
+
+    def _on_more_menu(self, choice: str):
+        """“更多”菜单：低频操作分发；选择后重置显示，避免停留在上次选择。"""
+        self._more_var.set("⋯ 更多")
+        if choice == "⟲ 刷新":
+            self.refresh()
+        elif choice == "⬆ 上移":
+            self._move_category("up")
+        elif choice == "⬇ 下移":
+            self._move_category("down")
 
     def refresh(self):
         # 记录当前展开的文件夹（分类 id），重建后恢复；首次打开无记录，默认全部折叠
@@ -127,7 +137,11 @@ class CategoryPanel(ctk.CTkFrame):
         if not name or not name.strip():
             return
         name = name.strip()
-        self.db.create_category(name, parent_id=parent_id)
+        try:
+            self.db.create_category(name, parent_id=parent_id)
+        except Exception as e:
+            show_write_error(self, e, "新建分类")
+            return
         self.refresh()
 
     def _rename_category(self):
@@ -144,7 +158,11 @@ class CategoryPanel(ctk.CTkFrame):
         new_name = simpledialog.askstring("重命名分类", "请输入新名称：", initialvalue=old_name, parent=self)
         if not new_name or not new_name.strip():
             return
-        self.db.rename_category(cat_id, new_name.strip())
+        try:
+            self.db.rename_category(cat_id, new_name.strip())
+        except Exception as e:
+            show_write_error(self, e, "重命名分类")
+            return
         self.refresh()
 
     def _delete_category(self):
@@ -162,7 +180,11 @@ class CategoryPanel(ctk.CTkFrame):
                                     f"确定删除分类“{name}”吗？\n\n子分类会被一起删除，该分类下的条目会变成“未分类”。",
                                     parent=self):
             return
-        self.db.delete_category(cat_id)
+        try:
+            self.db.delete_category(cat_id)
+        except Exception as e:
+            show_write_error(self, e, "删除分类")
+            return
         self.refresh()
 
     def _move_category(self, direction: str):
@@ -176,7 +198,11 @@ class CategoryPanel(ctk.CTkFrame):
             messagebox.showwarning("提示", "“全部条目”不能移动", parent=self)
             return
         cat_id = int(values[0])
-        self.db.move_category(cat_id, direction)
+        try:
+            self.db.move_category(cat_id, direction)
+        except Exception as e:
+            show_write_error(self, e, "移动分类")
+            return
         self.refresh()
         # 重新选中刚移动的分类，方便连续操作
         self._select_category_by_id(cat_id)
@@ -237,6 +263,10 @@ class CategoryPanel(ctk.CTkFrame):
 
         # 批量重置
         item_ids = [i["id"] for i in items]
-        self.db.batch_update_round2(item_ids, date.today())
+        try:
+            self.db.batch_update_round2(item_ids, date.today())
+        except Exception as e:
+            show_write_error(self, e, "启动二轮巩固")
+            return
         messagebox.showinfo("完成", f"已对 {len(items)} 条目启动二轮巩固", parent=self)
         self.refresh()

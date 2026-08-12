@@ -1,5 +1,7 @@
 import customtkinter as ctk
 
+from ui.theme import COLOR_TEXT_SECONDARY, COLOR_PERFECT, COLOR_PERFECT_HOVER
+
 
 class CategoryPickerButton(ctk.CTkFrame):
     """层级式分类选择按钮：显示当前选中分类路径，点击弹出逐级浏览窗口。
@@ -65,7 +67,7 @@ class CategoryBrowserDialog(ctk.CTkToplevel):
         self.top_bar.pack(fill="x", padx=10, pady=(10, 5))
         ctk.CTkButton(self.top_bar, text="⬆ 上级", width=80, command=self._go_up).pack(side="left", padx=(0, 5))
         self.path_label = ctk.CTkLabel(self.top_bar, text="📁 全部分类", anchor="w",
-                                       text_color="gray")
+                                       text_color=COLOR_TEXT_SECONDARY)
         self.path_label.pack(side="left", fill="x", expand=True)
 
         # 列表区域
@@ -76,7 +78,7 @@ class CategoryBrowserDialog(ctk.CTkToplevel):
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(fill="x", padx=10, pady=(0, 10))
         ctk.CTkButton(btn_frame, text="选定此文件夹", command=self._select_current,
-                      fg_color="#2ecc71").pack(side="left", padx=(0, 5))
+                      fg_color=COLOR_PERFECT).pack(side="left", padx=(0, 5))
         ctk.CTkButton(btn_frame, text="选定“未分类”", fg_color="gray",
                       command=self._select_uncategorized).pack(side="left", padx=5)
         ctk.CTkButton(btn_frame, text="取消", fg_color="gray", width=70,
@@ -99,14 +101,15 @@ class CategoryBrowserDialog(ctk.CTkToplevel):
         children = self.db.get_category_children(self.current_id)
         if not children:
             ctk.CTkLabel(self.list_frame, text="（此文件夹下没有子文件夹）",
-                         text_color="gray").pack(pady=30)
+                         text_color=COLOR_TEXT_SECONDARY).pack(pady=30)
             return
         for cat in children:
             row = ctk.CTkFrame(self.list_frame, fg_color="transparent")
             row.pack(fill="x", pady=2)
             ctk.CTkButton(row, text=f"📁 {cat['name']}", anchor="w",
                           command=lambda cid=cat["id"]: self._enter(cid)).pack(side="left", fill="x", expand=True)
-            ctk.CTkButton(row, text="选定", width=60, fg_color="#2ecc71",
+            ctk.CTkButton(row, text="选定", width=60, fg_color=COLOR_PERFECT,
+                          hover_color=COLOR_PERFECT_HOVER,
                           command=lambda cid=cat["id"]: self._pick(cid)).pack(side="left", padx=(5, 0))
 
     def _enter(self, category_id):

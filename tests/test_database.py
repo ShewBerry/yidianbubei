@@ -20,6 +20,29 @@ def test_init_creates_tables(db):
     assert "review_logs" in tables
 
 
+def test_init_creates_performance_indexes(db):
+    """热查询索引必须在 init 时创建，防止性能退化回归"""
+    cursor = db.conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='index'")
+    indexes = {row[0] for row in cursor.fetchall()}
+    expected = {
+        "idx_review_logs_item",
+        "idx_review_logs_date",
+        "idx_review_logs_date_result",
+        "idx_items_status_due",
+        "idx_items_category",
+        "idx_items_deleted",
+        "idx_categories_parent",
+    }
+    assert expected <= indexes
+
+
+def test_init_enables_wal(db):
+    """WAL 模式应持久化在库文件中（降低并发写锁竞争）"""
+    row = db.conn.execute("PRAGMA journal_mode").fetchone()
+    assert row[0].lower() == "wal"
+
+
 def test_items_table_has_new_fields(db):
     cols = {row[1] for row in db.conn.execute("PRAGMA table_info(items)")}
     assert "status" in cols
@@ -62,6 +85,25 @@ def test_get_due_items(db):
     due = db.get_due_items(today)
     assert len(due) == 1
     assert due[0]["title"] == "到期"
+
+
+def test_count_items_due_on(db):
+    """明日待背诵计数：只统计指定日期到期的 learning 条目，排除已删除/已掌握"""
+    today = date(2026, 6, 26)
+    tomorrow = today + timedelta(days=1)
+    db.create_item("明天到期", "内容", today, tomorrow, status="learning",
+                   round=1, interval=0, consecutive_correct=0)
+    db.create_item("今天到期", "内容", today, today, status="learning",
+                   round=1, interval=0, consecutive_correct=0)
+    db.create_item("明天已掌握", "内容", today, tomorrow, status="mastered",
+                   round=1, interval=34, consecutive_correct=8)
+    # 软删除的明日条目不计入
+    deleted = db.create_item("明天已删", "内容", today, tomorrow, status="learning",
+                             round=1, interval=0, consecutive_correct=0)
+    db.delete_item(deleted)
+    assert db.count_items_due_on(today) == 1
+    assert db.count_items_due_on(tomorrow) == 1
+    assert db.count_items_due_on(today + timedelta(days=2)) == 0
 
 
 def test_get_mastered_items(db):

@@ -3,6 +3,10 @@ import customtkinter as ctk
 from tkinter import messagebox
 from datetime import date, timedelta
 
+from ui.theme import (COLOR_PERFECT, COLOR_MOSTLY, COLOR_PARTIAL,
+                      COLOR_FORGOTTEN, COLOR_WRONG,
+                      review_title_font, small_font, COLOR_TEXT_SECONDARY)
+
 
 class BackfillReviewDialog(ctk.CTkToplevel):
     """补签对话框：选择历史日期和评分结果"""
@@ -13,7 +17,7 @@ class BackfillReviewDialog(ctk.CTkToplevel):
         self.item = item
         self.on_confirm_callback = on_confirm_callback
 
-        ctk.CTkLabel(self, text="补签背诵", font=ctk.CTkFont(size=18, weight="bold")).pack(pady=(15, 5))
+        ctk.CTkLabel(self, text="补签背诵", font=review_title_font()).pack(pady=(15, 5))
         ctk.CTkLabel(self, text=f"条目：{item['title']}").pack(pady=(0, 15))
 
         ctk.CTkLabel(self, text="补签日期：").pack(anchor="w", padx=30)
@@ -33,16 +37,16 @@ class BackfillReviewDialog(ctk.CTkToplevel):
         result_frame = ctk.CTkFrame(self, fg_color="transparent")
         result_frame.pack(fill="x", padx=30, pady=(2, 15))
         self.result_var = ctk.StringVar(value="perfect")
-        for text, value, color in [("完全正确", "perfect", "#2ecc71"),
-                                     ("基本正确", "mostly_correct", "#3498db"),
-                                     ("部分正确", "partial", "#f39c12"),
-                                     ("较多遗忘", "mostly_forgotten", "#cd6e4a"),
-                                     ("记错了", "wrong", "#e74c3c")]:
+        for text, value, color in [("完全正确", "perfect", COLOR_PERFECT),
+                                     ("基本正确", "mostly_correct", COLOR_MOSTLY),
+                                     ("部分正确", "partial", COLOR_PARTIAL),
+                                     ("较多遗忘", "mostly_forgotten", COLOR_FORGOTTEN),
+                                     ("记错了", "wrong", COLOR_WRONG)]:
             ctk.CTkRadioButton(result_frame, text=text, variable=self.result_var,
                                value=value, fg_color=color).pack(anchor="w", pady=2)
 
         ctk.CTkLabel(self, text="补签后将从该日期按评分重算间隔",
-                     text_color="gray", font=ctk.CTkFont(size=11)).pack(pady=(0, 15))
+                     text_color=COLOR_TEXT_SECONDARY, font=small_font()).pack(pady=(0, 15))
 
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(pady=8)

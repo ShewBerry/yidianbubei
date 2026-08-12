@@ -11,7 +11,7 @@
 同步状态 watermark 存在 SQLite settings 表：
 - sync_last_upload_at：上次成功上传的时间戳
 """
-import json
+import functools
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -21,6 +21,22 @@ from sync import client
 from sync.auth import get_user_id
 from sync.config import is_sync_enabled, load_config
 from sync.client import SyncError, AuthExpiredError
+
+
+# 模块级互斥锁：跨 Synchronizer 实例串行化全量/增量上传。
+# 原因：UI 的自动同步、启动上传、手动同步各自 new Synchronizer，
+# 若并发执行，_set_setting 写 watermark 会互相覆盖（后写回退先写），
+# 导致下次增量重复上传。锁住批量上传即可消除该竞态。
+_SYNC_LOCK = threading.Lock()
+
+
+def _synchronized(method):
+    """装饰器：让批量上传方法持有 _SYNC_LOCK 执行，串行化互斥。"""
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with _SYNC_LOCK:
+            return method(self, *args, **kwargs)
+    return wrapper
 
 
 # 表名映射：本地表 → 云端表
@@ -38,8 +54,10 @@ FIELD_MAP = {
     "item_marks": {"id": "local_id", "item_id": "item_local_id"},
     "key_folders": {"id": "local_id"},
     "key_items": {"folder_id": "folder_local_id", "item_id": "item_local_id"},
-    "settings": {},
 }
+
+# 云端 upsert 每批最大条数（避免请求体过大）
+BATCH_SIZE = 500
 
 class Synchronizer:
     """同步器：负责本地 SQLite ↔ Supabase 的数据同步
@@ -54,16 +72,28 @@ class Synchronizer:
         self._db_path = db.db_path  # 用于在子线程打开独立连接
         self._local_conn = None  # 子线程独立连接（懒创建）
 
+    @staticmethod
+    def _row_to_cloud(row: sqlite3.Row, field_map: dict, user_id: str) -> dict:
+        """本地行 → 云端记录：按 FIELD_MAP 映射列名 + 注入 user_id。
+        全量/增量/日志上传共用的唯一转换点。"""
+        record = {}
+        for key in row.keys():
+            cloud_key = field_map.get(key, key)
+            record[cloud_key] = row[key]
+        record["user_id"] = user_id
+        return record
+
     def _get_local_conn(self) -> sqlite3.Connection:
         """获取当前线程的独立 SQLite 连接（只读模式）。
         SQLite 连接不能跨线程，每个子线程需自己创建。
         """
         if self._local_conn is None:
-            # 用 check_same_thread=True（默认）但因为是当前线程创建的所以可用
-            # uri=True + mode=ro 以只读方式打开，避免与主线程写冲突
+            # 每个线程各自创建连接：SQLite 连接默认禁止跨线程使用
+            # uri=True + mode=ro 以只读方式打开，避免与主线程写冲突；
+            # check_same_thread=False 仅用于此只读连接（多线程并发读安全）
             self._local_conn = sqlite3.connect(
                 f"file:{self._db_path}?mode=ro", uri=True,
-                check_same_thread=False,  # 安全：只读连接可被任意线程使用
+                check_same_thread=False,
             )
             self._local_conn.row_factory = sqlite3.Row
         return self._local_conn
@@ -87,6 +117,7 @@ class Synchronizer:
         finally:
             conn.close()
 
+    @_synchronized
     def full_upload(self, on_progress: Callable[[str, int, int], None] = None) -> dict:
         """全量上传所有表到云端。
 
@@ -117,18 +148,10 @@ class Synchronizer:
                 continue
 
             # 转为云端格式
-            cloud_rows = []
             field_map = FIELD_MAP.get(table, {})
-            for row in rows:
-                record = {}
-                for key in row.keys():
-                    cloud_key = field_map.get(key, key)
-                    record[cloud_key] = row[key]
-                record["user_id"] = user_id
-                cloud_rows.append(record)
+            cloud_rows = [self._row_to_cloud(r, field_map, user_id) for r in rows]
 
-            # 分批 upsert（每批 500 条，避免请求体过大）
-            BATCH_SIZE = 500
+            # 分批 upsert
             uploaded = 0
             for i in range(0, len(cloud_rows), BATCH_SIZE):
                 batch = cloud_rows[i:i + BATCH_SIZE]
@@ -148,43 +171,6 @@ class Synchronizer:
             self._set_setting("sync_last_uploaded_log_id", str(max_log_id))
 
         return stats
-
-    def upload_record(self, table: str, local_id: int) -> bool:
-        """单条记录增量上传（实时同步用）。
-
-        table: 表名（categories/items/review_logs/item_marks）
-        local_id: 本地 id
-        返回 True 表示成功，False 表示记录不存在或失败。
-        异常会抛出 SyncError。
-        """
-        if table not in FIELD_MAP or table == "settings":
-            return False  # settings 表用全量同步，不支持单条
-
-        user_id = get_user_id()
-        if not user_id:
-            raise AuthExpiredError("未登录")
-
-        cursor = self._get_local_conn().execute(
-            f"SELECT * FROM {table} WHERE id=?", (local_id,))
-        row = cursor.fetchone()
-        if not row:
-            return False
-
-        field_map = FIELD_MAP[table]
-        record = {}
-        for key in row.keys():
-            cloud_key = field_map.get(key, key)
-            record[cloud_key] = row[key]
-        record["user_id"] = user_id
-
-        client.upsert(table, [record])
-
-        # review_logs 单条上传后更新 max id，保持与增量上传逻辑一致
-        if table == "review_logs":
-            last_uploaded_id = int(self._get_setting("sync_last_uploaded_log_id", "0"))
-            if local_id > last_uploaded_id:
-                self._set_setting("sync_last_uploaded_log_id", str(local_id))
-        return True
 
     def upload_table_incremental(self, table: str, since_iso: str = None) -> int:
         """增量上传某张表。
@@ -213,16 +199,8 @@ class Synchronizer:
             return 0
 
         field_map = FIELD_MAP[table]
-        cloud_rows = []
-        for row in rows:
-            record = {}
-            for key in row.keys():
-                cloud_key = field_map.get(key, key)
-                record[cloud_key] = row[key]
-            record["user_id"] = user_id
-            cloud_rows.append(record)
+        cloud_rows = [self._row_to_cloud(r, field_map, user_id) for r in rows]
 
-        BATCH_SIZE = 500
         uploaded = 0
         for i in range(0, len(cloud_rows), BATCH_SIZE):
             batch = cloud_rows[i:i + BATCH_SIZE]
@@ -248,20 +226,10 @@ class Synchronizer:
             return 0
 
         field_map = FIELD_MAP["review_logs"]
-        cloud_rows = []
-        max_id = last_uploaded_id
-        for row in rows:
-            record = {}
-            for key in row.keys():
-                cloud_key = field_map.get(key, key)
-                record[cloud_key] = row[key]
-            record["user_id"] = user_id
-            cloud_rows.append(record)
-            if row["id"] > max_id:
-                max_id = row["id"]
+        cloud_rows = [self._row_to_cloud(r, field_map, user_id) for r in rows]
+        max_id = max(last_uploaded_id, rows[-1]["id"])  # ORDER BY id ASC，末行为最大 id
 
         # 分批 upsert
-        BATCH_SIZE = 500
         uploaded = 0
         for i in range(0, len(cloud_rows), BATCH_SIZE):
             batch = cloud_rows[i:i + BATCH_SIZE]
@@ -272,6 +240,7 @@ class Synchronizer:
         self._set_setting("sync_last_uploaded_log_id", str(max_id))
         return uploaded
 
+    @_synchronized
     def incremental_upload_all(self, on_progress: Callable[[str, int, int], None] = None) -> dict:
         """增量上传所有表（实际是全表 upsert，云端按主键 merge）。
 
@@ -282,6 +251,7 @@ class Synchronizer:
             raise SyncError("同步未启用")
 
         stats = {}
+        has_error = False
         total = len(TABLES)
         for idx, table in enumerate(TABLES):
             if on_progress:
@@ -291,10 +261,14 @@ class Synchronizer:
                 stats[table] = count
             except SyncError as e:
                 stats[table] = f"error: {e}"
+                has_error = True
                 # 继续下一张表，不要因为一张表失败就全停
 
-        now_iso = datetime.now(timezone.utc).isoformat()
-        self._set_setting("sync_last_upload_at", now_iso)
+        # 仅当所有表都成功才更新"上次同步时间"，
+        # 否则部分表失败会留下"已同步"的假象（假成功）。
+        if not has_error:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            self._set_setting("sync_last_upload_at", now_iso)
         return stats
 
     def get_last_sync_time(self) -> str | None:

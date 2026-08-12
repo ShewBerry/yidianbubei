@@ -12,6 +12,8 @@ from sync.config import load_config, save_config, is_sync_enabled
 from sync.auth import sign_in, sign_up, sign_out, get_email, AuthError
 from sync.client import SyncError, AuthExpiredError
 from sync.synchronizer import Synchronizer
+from ui.theme import title_font, body_font, small_font, COLOR_TEXT_SECONDARY,\
+    COLOR_DANGER, COLOR_DANGER_HOVER
 
 
 class SyncDialog(ctk.CTkToplevel):
@@ -33,22 +35,22 @@ class SyncDialog(ctk.CTkToplevel):
     def _build_ui(self):
         # 标题
         ctk.CTkLabel(self, text="☁️ 云端同步",
-                     font=ctk.CTkFont(size=20, weight="bold")).pack(pady=(20, 5))
+                     font=title_font()).pack(pady=(20, 5))
 
         ctk.CTkLabel(self,
                      text="云端作为电脑端的备份，数据只上传、不覆盖本地",
-                     text_color="gray",
-                     font=ctk.CTkFont(size=12)).pack(pady=(0, 15))
+                     text_color=COLOR_TEXT_SECONDARY,
+                     font=small_font()).pack(pady=(0, 15))
 
         # 状态卡片
         self.status_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.status_frame.pack(fill="x", padx=20, pady=5)
         self.status_label = ctk.CTkLabel(self.status_frame, text="",
-                                          font=ctk.CTkFont(size=13))
+                                          font=body_font())
         self.status_label.pack()
         self.last_sync_label = ctk.CTkLabel(self.status_frame, text="",
-                                             text_color="gray",
-                                             font=ctk.CTkFont(size=11))
+                                             text_color=COLOR_TEXT_SECONDARY,
+                                             font=small_font())
         self.last_sync_label.pack(pady=(2, 0))
 
         # 分隔线
@@ -59,8 +61,8 @@ class SyncDialog(ctk.CTkToplevel):
         self.action_frame.pack(fill="both", expand=True, padx=20, pady=5)
 
         # 进度标签（同步过程中显示）
-        self.progress_label = ctk.CTkLabel(self, text="", text_color="gray",
-                                            font=ctk.CTkFont(size=11))
+        self.progress_label = ctk.CTkLabel(self, text="", text_color=COLOR_TEXT_SECONDARY,
+                                            font=small_font())
         self.progress_label.pack(pady=(0, 10))
 
     def _refresh_status(self):
@@ -81,7 +83,7 @@ class SyncDialog(ctk.CTkToplevel):
             else:
                 self.last_sync_label.configure(text="尚未同步")
         else:
-            self.status_label.configure(text="未登录", text_color="gray")
+            self.status_label.configure(text="未登录", text_color=COLOR_TEXT_SECONDARY)
             self.last_sync_label.configure(text="")
 
         # 重建操作区
@@ -143,7 +145,7 @@ class SyncDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(frame,
                      text="提示：首次使用请先注册。",
-                     text_color="gray", font=ctk.CTkFont(size=11)
+                     text_color=COLOR_TEXT_SECONDARY, font=small_font()
                      ).pack(pady=(15, 0))
 
     def _build_sync_controls(self, sync_on: bool):
@@ -176,7 +178,7 @@ class SyncDialog(ctk.CTkToplevel):
 
         # 登出按钮
         ctk.CTkButton(btn_frame, text="登出", width=180, height=34,
-                      fg_color="#e74c3c", hover_color="#c0392b",
+                      fg_color=COLOR_DANGER, hover_color=COLOR_DANGER_HOVER,
                       command=self._do_logout).pack(fill="x", pady=(15, 0))
 
         # 说明
@@ -184,7 +186,7 @@ class SyncDialog(ctk.CTkToplevel):
                      text="云端作为电脑端的备份：点「立即全量上传」把本地数据传到云端。\n"
                           "启用「实时同步」会在每次数据变动后自动上传。\n"
                           "云端数据不会覆盖电脑端。",
-                     text_color="gray", font=ctk.CTkFont(size=11),
+                     text_color=COLOR_TEXT_SECONDARY, font=small_font(),
                      justify="left").pack(pady=(15, 0), anchor="w")
 
     def _do_full_upload(self):

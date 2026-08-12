@@ -13,7 +13,7 @@ class StatsPanel(ctk.CTkFrame):
         self.db = db
 
         ctk.CTkLabel(self, text="背诵统计",
-                     font=title_font()).pack(pady=(15, 10))
+                     font=title_font()).pack(anchor="w", padx=15, pady=(15, 10))
 
         self.scroll = ctk.CTkScrollableFrame(self, label_text="")
         self.scroll.pack(fill="both", expand=True, padx=15, pady=(0, 15))
@@ -37,7 +37,7 @@ class StatsPanel(ctk.CTkFrame):
 
     def _render_today_progress(self, today):
         """今日进度：已完成 X / 共 Y 条"""
-        frame = ctk.CTkFrame(self.scroll, corner_radius=8)
+        frame = ctk.CTkFrame(self.scroll, corner_radius=10)
         frame.pack(fill="x", pady=5, padx=5)
 
         ctk.CTkLabel(frame, text="今日进度",
@@ -54,7 +54,7 @@ class StatsPanel(ctk.CTkFrame):
 
     def _render_weekly_stats(self, today):
         """本周完成：N 条完全正确"""
-        frame = ctk.CTkFrame(self.scroll, corner_radius=8)
+        frame = ctk.CTkFrame(self.scroll, corner_radius=10)
         frame.pack(fill="x", pady=5, padx=5)
 
         ctk.CTkLabel(frame, text="本周完成",
@@ -71,7 +71,7 @@ class StatsPanel(ctk.CTkFrame):
 
     def _render_overview(self):
         """总览：学习中/已掌握/已归档"""
-        frame = ctk.CTkFrame(self.scroll, corner_radius=8)
+        frame = ctk.CTkFrame(self.scroll, corner_radius=10)
         frame.pack(fill="x", pady=5, padx=5)
 
         ctk.CTkLabel(frame, text="总览",
@@ -87,7 +87,7 @@ class StatsPanel(ctk.CTkFrame):
 
     def _render_category_progress(self):
         """各分类进度"""
-        frame = ctk.CTkFrame(self.scroll, corner_radius=8)
+        frame = ctk.CTkFrame(self.scroll, corner_radius=10)
         frame.pack(fill="x", pady=5, padx=5)
 
         ctk.CTkLabel(frame, text="各分类进度",

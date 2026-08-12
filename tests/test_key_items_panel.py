@@ -36,6 +36,9 @@ class FakeDB:
     def get_active_items(self):
         return [dict(i) for i in self._items]
 
+    def get_all_items(self):
+        return [dict(i) for i in self._items]
+
     def get_items_by_category(self, cid, include_descendants=False):
         return [dict(i) for i in self._items]
 
@@ -65,6 +68,16 @@ def root():
     r.withdraw()
     yield r
     r.destroy()
+
+
+@pytest.fixture
+def real_db(tmp_path):
+    """真实 SQLite 数据库，用于验证真实 SQL 路径下的面板行为"""
+    from database import Database
+    db = Database(str(tmp_path / "test.db"))
+    db.init()
+    yield db
+    db.close()
 
 
 @pytest.fixture
@@ -99,6 +112,30 @@ def test_no_folders_shows_empty_state(panel_factory):
     panel = panel_factory([], [])
     assert panel.current_folder_id is None
     assert panel.item_list._filtered == []
+    assert panel.item_list.empty_mode is True
+
+
+def test_no_folders_with_items_does_not_show_all(panel_factory):
+    # 回归：没有任何重点文件夹时，即使存在普通条目也不得显示全部条目
+    items = [make_item(21, None, "普通条目A"), make_item(22, None, "普通条目B")]
+    panel = panel_factory([], items)
+    assert panel.current_folder_id is None
+    assert panel.item_list._filtered == []
+    assert panel.item_list.empty_mode is True
+
+
+def test_real_db_no_folders_with_items_shows_empty_state(root, real_db):
+    # 用真实数据库验证：无重点文件夹 + 有普通条目 -> 空状态而非全部条目
+    from datetime import date
+    real_db.create_item(
+        "普通条目", "内容", date(2026, 8, 7), date(2026, 8, 7),
+        status="learning", round=1, interval=0, consecutive_correct=0)
+    panel = KeyItemsPanel(root, real_db, Scheduler())
+    try:
+        assert panel.item_list._filtered == []
+        assert panel.item_list.empty_mode is True
+    finally:
+        panel.destroy()
 
 
 def test_select_folder_filters_items(panel_factory):

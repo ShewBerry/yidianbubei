@@ -5,14 +5,28 @@ from datetime import date
 from ui.html_utils import html_to_plain_text
 
 
+# items 表显式列名：避免 SELECT * 依赖列序（_row_to_item 按键访问）
+ITEM_COLUMNS = ("id, title, content, created_date, category_id, status, round, "
+                "interval, consecutive_correct, next_review_date, notes, deleted_at")
+
+# 回收站保留天数（超过后 purge_expired_deleted 物理清理）
+TRASH_RETENTION_DAYS = 30
+
+
 class Database:
     def __init__(self, db_path: str):
         self.db_path = db_path
         os.makedirs(os.path.dirname(db_path), exist_ok=True) if os.path.dirname(db_path) else None
         self.conn = sqlite3.connect(db_path)
+        # Row 支持键与位置双访问：新代码用 row["col"]，旧位置索引兼容
+        self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
+        # 写锁等待 5 秒：主线程与同步线程并发写时避免直接 SQLITE_BUSY
+        self.conn.execute("PRAGMA busy_timeout = 5000")
 
     def init(self):
+        # WAL：读写并发互不阻塞，主线程与同步线程并发访问时避免锁竞争
+        self.conn.execute("PRAGMA journal_mode = WAL")
         self.conn.executescript("""
             CREATE TABLE IF NOT EXISTS categories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,6 +90,14 @@ class Database:
                 FOREIGN KEY (folder_id) REFERENCES key_folders(id) ON DELETE CASCADE,
                 FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
             );
+
+            -- 索引：覆盖评分/刷新/列表/统计的全部热查询，避免全表扫描
+            -- 注意：items 的 deleted_at 列由下方迁移添加，相关索引在迁移后创建
+            CREATE INDEX IF NOT EXISTS idx_review_logs_item ON review_logs(item_id);
+            CREATE INDEX IF NOT EXISTS idx_review_logs_date ON review_logs(review_date, item_id);
+            CREATE INDEX IF NOT EXISTS idx_review_logs_date_result ON review_logs(review_date, result);
+            CREATE INDEX IF NOT EXISTS idx_items_category ON items(category_id);
+            CREATE INDEX IF NOT EXISTS idx_categories_parent ON categories(parent_id);
         """)
         # 迁移：为旧库的 items 表补 notes 字段（已存在则忽略）
         cols = {row[1] for row in self.conn.execute("PRAGMA table_info(items)")}
@@ -88,6 +110,11 @@ class Database:
         cat_cols = {row[1] for row in self.conn.execute("PRAGMA table_info(categories)")}
         if "sort_order" not in cat_cols:
             self.conn.execute("ALTER TABLE categories ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+        # 索引：依赖上面迁移添加的 deleted_at 列（due 列表/回收站热查询）
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_items_status_due ON items(status, deleted_at, next_review_date)")
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_items_deleted ON items(deleted_at)")
         self.conn.commit()
 
     # ===== 分类 CRUD =====
@@ -205,44 +232,64 @@ class Database:
         return cursor.lastrowid
 
     def _row_to_item(self, row) -> dict:
+        if row is None:
+            return None
+        keys = row.keys()
         return {
-            "id": row[0], "title": row[1], "content": row[2], "created_date": row[3],
-            "category_id": row[4], "status": row[5], "round": row[6], "interval": row[7],
-            "consecutive_correct": row[8], "next_review_date": row[9],
-            "notes": row[10] if len(row) > 10 else "",
-            "deleted_at": row[11] if len(row) > 11 else None
+            "id": row["id"], "title": row["title"], "content": row["content"],
+            "created_date": row["created_date"], "category_id": row["category_id"],
+            "status": row["status"], "round": row["round"], "interval": row["interval"],
+            "consecutive_correct": row["consecutive_correct"],
+            "next_review_date": row["next_review_date"],
+            "notes": row["notes"] if "notes" in keys else "",
+            "deleted_at": row["deleted_at"] if "deleted_at" in keys else None,
         }
 
     def get_due_items(self, today) -> list:
         today_str = today.isoformat() if hasattr(today, "isoformat") else today
         cursor = self.conn.execute(
-            """SELECT * FROM items
+            f"""SELECT {ITEM_COLUMNS} FROM items
                WHERE deleted_at IS NULL AND status='learning'
                  AND next_review_date != '' AND next_review_date <= ?
                ORDER BY next_review_date ASC""", (today_str,))
         return [self._row_to_item(r) for r in cursor.fetchall()]
 
+    def count_items_due_on(self, target_date) -> int:
+        """统计指定日期应背（next_review_date = target_date）的 learning 条目数。
+        用于"明日待背诵"数量提示。"""
+        target_str = target_date.isoformat() if hasattr(target_date, "isoformat") else target_date
+        cursor = self.conn.execute(
+            "SELECT COUNT(*) FROM items WHERE deleted_at IS NULL AND status='learning' "
+            "AND next_review_date=?", (target_str,))
+        return cursor.fetchone()[0]
+
     def get_active_items(self) -> list:
         cursor = self.conn.execute(
-            "SELECT * FROM items WHERE deleted_at IS NULL AND status='learning' ORDER BY next_review_date ASC")
+            f"SELECT {ITEM_COLUMNS} FROM items WHERE deleted_at IS NULL AND status='learning' ORDER BY next_review_date ASC")
+        return [self._row_to_item(r) for r in cursor.fetchall()]
+
+    def get_all_items(self) -> list:
+        """全部条目（含学习中/已掌握/已归档，不含已删除）。"""
+        cursor = self.conn.execute(
+            f"SELECT {ITEM_COLUMNS} FROM items WHERE deleted_at IS NULL ORDER BY next_review_date ASC")
         return [self._row_to_item(r) for r in cursor.fetchall()]
 
     def get_mastered_items(self) -> list:
         cursor = self.conn.execute(
-            "SELECT * FROM items WHERE deleted_at IS NULL AND status IN ('mastered','archived') ORDER BY created_date DESC")
+            f"SELECT {ITEM_COLUMNS} FROM items WHERE deleted_at IS NULL AND status IN ('mastered','archived') ORDER BY created_date DESC")
         return [self._row_to_item(r) for r in cursor.fetchall()]
 
     def get_item(self, item_id: int) -> dict:
         """按 id 获取单个条目。注意：不过滤 deleted_at，回收站 UI 等场景需要读取已删除条目。
         调用方需自行判断 deleted_at 是否为 None。"""
-        cursor = self.conn.execute("SELECT * FROM items WHERE id=?", (item_id,))
+        cursor = self.conn.execute(f"SELECT {ITEM_COLUMNS} FROM items WHERE id=?", (item_id,))
         row = cursor.fetchone()
         return self._row_to_item(row) if row else None
 
     def get_items_by_category(self, category_id: int = None, include_descendants: bool = True) -> list:
         if category_id is None:
             cursor = self.conn.execute(
-                "SELECT * FROM items WHERE deleted_at IS NULL AND category_id IS NULL ORDER BY created_date DESC")
+                f"SELECT {ITEM_COLUMNS} FROM items WHERE deleted_at IS NULL AND category_id IS NULL ORDER BY created_date DESC")
             return [self._row_to_item(r) for r in cursor.fetchall()]
         if include_descendants:
             ids = self.get_category_descendant_ids(category_id)
@@ -250,11 +297,11 @@ class Database:
                 return []
             placeholders = ",".join("?" * len(ids))
             cursor = self.conn.execute(
-                f"SELECT * FROM items WHERE deleted_at IS NULL AND category_id IN ({placeholders}) ORDER BY created_date DESC",
+                f"SELECT {ITEM_COLUMNS} FROM items WHERE deleted_at IS NULL AND category_id IN ({placeholders}) ORDER BY created_date DESC",
                 ids)
         else:
             cursor = self.conn.execute(
-                "SELECT * FROM items WHERE deleted_at IS NULL AND category_id=? ORDER BY created_date DESC", (category_id,))
+                f"SELECT {ITEM_COLUMNS} FROM items WHERE deleted_at IS NULL AND category_id=? ORDER BY created_date DESC", (category_id,))
         return [self._row_to_item(r) for r in cursor.fetchall()]
 
     def delete_item(self, item_id: int):
@@ -268,7 +315,7 @@ class Database:
     def get_deleted_items(self) -> list:
         """获取回收站中的条目（已软删除），按删除时间倒序。"""
         cursor = self.conn.execute(
-            "SELECT * FROM items WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")
+            f"SELECT {ITEM_COLUMNS} FROM items WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")
         return [self._row_to_item(r) for r in cursor.fetchall()]
 
     def restore_item(self, item_id: int):
@@ -279,21 +326,34 @@ class Database:
     def purge_item(self, item_id: int):
         """彻底删除条目（物理删除，不可恢复）。
         用于回收站的"彻底删除"操作，或删除已软删除的条目。"""
-        self.conn.execute("DELETE FROM review_logs WHERE item_id=?", (item_id,))
-        self.conn.execute("DELETE FROM item_marks WHERE item_id=?", (item_id,))
-        self.conn.execute("DELETE FROM items WHERE id=?", (item_id,))
-        self.conn.commit()
+        try:
+            self.conn.execute("DELETE FROM review_logs WHERE item_id=?", (item_id,))
+            self.conn.execute("DELETE FROM item_marks WHERE item_id=?", (item_id,))
+            self.conn.execute("DELETE FROM items WHERE id=?", (item_id,))
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
 
-    def purge_expired_deleted(self, days: int = 30):
+    def purge_expired_deleted(self, days: int = TRASH_RETENTION_DAYS):
         """清理回收站中超过指定天数的条目（物理删除）。
-        默认保留 30 天。"""
+        默认保留 30 天。单事务批量删除，避免逐条 commit 的性能与半写风险。"""
         from datetime import datetime, timedelta
         cutoff = (datetime.now() - timedelta(days=days)).isoformat()
         cursor = self.conn.execute(
             "SELECT id FROM items WHERE deleted_at IS NOT NULL AND deleted_at < ?", (cutoff,))
         expired_ids = [row[0] for row in cursor.fetchall()]
-        for item_id in expired_ids:
-            self.purge_item(item_id)
+        if not expired_ids:
+            return 0
+        placeholders = ",".join("?" * len(expired_ids))
+        try:
+            # 关联表（review_logs/item_marks/key_items）由外键 ON DELETE CASCADE 一并清理
+            self.conn.execute(
+                f"DELETE FROM items WHERE id IN ({placeholders})", expired_ids)
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
         return len(expired_ids)
 
     def update_item(self, item_id: int, **fields):
@@ -303,6 +363,7 @@ class Database:
         if not updates:
             return
         # 编辑 content 时需平移已有标记（按纯文本，HTML 标签不计入）
+        old_plain = new_plain = None
         if "content" in updates:
             old_item = self.get_item(item_id)
             old_plain = html_to_plain_text(old_item["content"]) if old_item else ""
@@ -312,10 +373,15 @@ class Database:
                 updates[date_field] = updates[date_field].isoformat()
         set_clause = ", ".join(f"{k}=?" for k in updates)
         values = list(updates.values()) + [item_id]
-        self.conn.execute(f"UPDATE items SET {set_clause} WHERE id=?", values)
-        self.conn.commit()
-        if "content" in updates:
-            self._shift_marks(item_id, old_plain, new_plain)
+        # UPDATE 与标记平移在同一事务：任一步失败整体回滚，避免半写状态
+        try:
+            self.conn.execute(f"UPDATE items SET {set_clause} WHERE id=?", values)
+            if "content" in updates:
+                self._shift_marks(item_id, old_plain, new_plain)
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
 
     def batch_update_round2(self, item_ids: list, today):
         """批量将条目重置为二轮状态"""
@@ -451,9 +517,8 @@ class Database:
         old_len = len(old_text)
         new_len = len(new_text)
         if old_len == 0 or new_len == 0:
-            # 旧或新为空：无法定位编辑点，清空所有标记
+            # 旧或新为空：无法定位编辑点，清空所有标记（不 commit，由调用方统一提交）
             self.conn.execute("DELETE FROM item_marks WHERE item_id=?", (item_id,))
-            self.conn.commit()
             return
         # 找最长公共前缀
         prefix_len = 0
@@ -475,6 +540,8 @@ class Database:
         cursor = self.conn.execute(
             "SELECT id, start_pos, end_pos FROM item_marks WHERE item_id=?", (item_id,))
         rows = cursor.fetchall()
+        to_delete = []
+        to_update = []  # (new_start, new_end, mark_id)
         for mark_id, start, end in rows:
             if end <= prefix_len:
                 # 标记完全在编辑区段之前：位置不变
@@ -485,19 +552,24 @@ class Database:
                 new_end = end + delta
                 # 边界容错（不应超出新长度）
                 if new_start >= new_end or new_start >= new_len:
-                    self.conn.execute("DELETE FROM item_marks WHERE id=?", (mark_id,))
+                    to_delete.append(mark_id)
                 else:
                     new_end = min(new_end, new_len)
                     if new_start >= new_end:
-                        self.conn.execute("DELETE FROM item_marks WHERE id=?", (mark_id,))
+                        to_delete.append(mark_id)
                     else:
-                        self.conn.execute(
-                            "UPDATE item_marks SET start_pos=?, end_pos=? WHERE id=?",
-                            (new_start, new_end, mark_id))
+                        to_update.append((new_start, new_end, mark_id))
             else:
                 # 标记跨越或在编辑区段内：删除（无法精确恢复）
-                self.conn.execute("DELETE FROM item_marks WHERE id=?", (mark_id,))
-        self.conn.commit()
+                to_delete.append(mark_id)
+        # 批量执行（单事务内），避免逐条 SQL 与中途半写
+        if to_delete:
+            placeholders = ",".join("?" * len(to_delete))
+            self.conn.execute(
+                f"DELETE FROM item_marks WHERE id IN ({placeholders})", to_delete)
+        if to_update:
+            self.conn.executemany(
+                "UPDATE item_marks SET start_pos=?, end_pos=? WHERE id=?", to_update)
 
     # ===== 设置 CRUD =====
     def get_setting(self, key: str, default: str = "") -> str:
@@ -555,8 +627,10 @@ class Database:
         self.conn.commit()
 
     def get_key_folder_items(self, folder_id: int) -> list:
+        # JOIN 中两表都有 created_date 等列，需显式加 items 别名前缀避免歧义
+        prefixed = ", ".join(f"i.{col}" for col in ITEM_COLUMNS.split(", "))
         cursor = self.conn.execute(
-            """SELECT i.* FROM items i
+            f"""SELECT {prefixed} FROM items i
                JOIN key_items ki ON ki.item_id = i.id
                WHERE ki.folder_id=? AND i.deleted_at IS NULL
                ORDER BY ki.created_date DESC, i.id DESC""", (folder_id,))
@@ -567,12 +641,6 @@ class Database:
             "SELECT 1 FROM key_items WHERE folder_id=? AND item_id=?",
             (folder_id, item_id))
         return cursor.fetchone() is not None
-
-    def get_item_key_folder_ids(self, item_id: int) -> list:
-        cursor = self.conn.execute(
-            "SELECT folder_id FROM key_items WHERE item_id=? ORDER BY created_date",
-            (item_id,))
-        return [r[0] for r in cursor.fetchall()]
 
     def close(self):
         self.conn.close()
