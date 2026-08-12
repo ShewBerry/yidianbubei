@@ -33,6 +33,9 @@ reasonix.toml
 # GitHub 开源版副本（独立仓库用，不随主仓库提交）
 github_version/
 
+# 本机自用的一键打包脚本（含固定安装路径/桌面快捷方式，不适合开源分享）
+update.py
+
 # 归档/备份目录（保留在磁盘，不入库）
 _archive_*/
 mobile_backup_*/
