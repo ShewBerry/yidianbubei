@@ -21,6 +21,10 @@ from ui.notes_box import NotesBox
 
 class ReviewPanel(ctk.CTkFrame):
     """今日待背诵面板：卡片式单张展示，4级评分交互"""
+    # 背诵区最小高度：保证窗口模式下至少能显示两行正文（含标记工具栏约30px）。
+    # 以正文 16-18px 计，两行 ≈ 40-45px，加工具栏后取 90px 更稳妥。
+    MIN_CONTENT_H = 90
+
     def __init__(self, parent, db, scheduler: Scheduler, on_data_changed=None):
         super().__init__(parent)
         self.db = db
@@ -82,7 +86,7 @@ class ReviewPanel(ctk.CTkFrame):
                 if item["id"] not in existing_ids:
                     is_retest = item["id"] in reviewed_ids
                     self.queue.append({"item": item, "is_retest": is_retest})
-            # 重新计算 completed_count（云端拉取可能新增了今日 perfect 评分）
+            # 重新计算 completed_count（其他操作可能新增了今日 perfect 评分）
             today_perfect = self.db.get_perfect_count_in_range(today, today)
             due_perfect_in_logs = 0
             if due_items:
@@ -164,7 +168,7 @@ class ReviewPanel(ctk.CTkFrame):
         card.pack(fill="both", expand=True, pady=10)
 
         header = ctk.CTkFrame(card, fg_color="transparent")
-        header.pack(fill="x", padx=20, pady=(15, 5))
+        # header 的 pack/grid 布局在下方分支内完成（card 同一容器不能混用 pack/grid）
         ctk.CTkLabel(header, text=item['title'],
                      font=review_title_font()).pack(side="left")
         ctk.CTkLabel(header, text=stage_desc, text_color=COLOR_TEXT_SECONDARY,
@@ -176,9 +180,23 @@ class ReviewPanel(ctk.CTkFrame):
                       command=lambda: self._mark_key(item)).pack(side="right", padx=(6, 0))
 
         if current.get("show_content"):
-            # 评分按钮固定底部（先 pack side=bottom）
+            # 卡片内部改用 grid 布局（card 内不能用 pack：pack 在窗口较小时会把
+            # expand 的背诵区压缩到不足两行，无法设最小高度；grid 的 rowconfigure
+            # minsize 可保证背诵区最小高度）。
+            # 行布局：row0 header → row1 背诵区(weight=1, minsize=MIN_CONTENT_H)
+            #          → row2 分隔条 → row3 笔记区 → row4 评分按钮
+            card.grid_columnconfigure(0, weight=1)
+            card.grid_rowconfigure(0, weight=0)   # header
+            card.grid_rowconfigure(1, weight=1, minsize=self.MIN_CONTENT_H)  # 背诵区
+            card.grid_rowconfigure(2, weight=0)   # 分隔条
+            card.grid_rowconfigure(3, weight=0)   # 笔记区
+            card.grid_rowconfigure(4, weight=0)   # 评分按钮
+
+            header.grid(row=0, column=0, sticky="ew", padx=20, pady=(15, 5))
+
+            # 评分按钮固定底部
             btn_frame = ctk.CTkFrame(card, fg_color="transparent")
-            btn_frame.pack(side="bottom", fill="x", padx=20, pady=(5, 15))
+            btn_frame.grid(row=4, column=0, sticky="ew", padx=20, pady=(5, 15))
 
             ctk.CTkButton(btn_frame, text="✓ 完全正确", height=42,
                           fg_color=COLOR_PERFECT, hover_color=COLOR_PERFECT_HOVER,
@@ -202,27 +220,53 @@ class ReviewPanel(ctk.CTkFrame):
                           font=heading_font(),
                           command=lambda: self._handle_review("wrong")).pack(side="left", padx=3, expand=True)
 
-            # 用 PanedWindow 实现可拖拽 sash：内容框（上）与笔记（下）之间有分隔条，
-            # 鼠标放在分隔条上会变成上下箭头光标，按下拖动即可自由调整内容框高度，
-            # 无需拖动窗口边缘。评分按钮固定底部不受影响。
-            # sash 位置持久化到 settings：每次展开内容后恢复上次拖拽的位置。
-            self.paned = tk.PanedWindow(card, orient="vertical", sashwidth=8,
-                                         sashrelief="flat", bg="gray60",
-                                         borderwidth=0, handlesize=0, sashpad=0)
-            self.paned.pack(fill="both", expand=True, padx=20, pady=5)
+            # 自定义布局（不用 tk.PanedWindow：其 sash_place 在 CTkFrame pane 下
+            # 实测失效，窗口放大后 sash 不重排，导致全屏下半部分空白）。
+            # 笔记区高度用 grid 固定行 + pack_propagate(False) + configure(height) 精确控制，
+            # 分隔条为自绘 Frame，bind 鼠标事件实现拖拽。
 
-            # 上：可标记+可缩放内容框
-            self.markable_box = MarkableTextbox(self.paned, self.db, item, read_only_marks=False)
-            self.paned.add(self.markable_box, minsize=120, stretch="middle")
+            # 笔记区（row3：位于评分按钮上方，可折叠；默认收起 24px 只显示标题行）
+            self._notes_expanded = False
+            self._dragging = False
+            self.notes_section = ctk.CTkFrame(card, fg_color="transparent")
+            self.notes_section.grid(row=3, column=0, sticky="ew", padx=20, pady=(0, 2))
+            self.notes_section.pack_propagate(False)
 
-            # 下：条目笔记
-            self.notes_box = NotesBox(self.paned, self.db, item["id"],
-                                       current_notes=item.get("notes", ""), height=70)
-            self.paned.add(self.notes_box, minsize=60)
+            # 笔记标题行：纯文字「笔记」+ 展开/收起箭头，无灰框背景
+            notes_header = ctk.CTkFrame(self.notes_section, fg_color="transparent")
+            notes_header.pack(side="top", fill="x")
+            ctk.CTkLabel(notes_header, text="📝 笔记", font=small_font(),
+                         text_color=COLOR_TEXT_SECONDARY).pack(side="left", padx=2)
+            self.notes_toggle = ctk.CTkButton(
+                notes_header, text="▲", width=26, height=18,
+                fg_color="transparent", border_width=1,
+                border_color=BTN_OUTLINE_WARN_BORDER, text_color=BTN_OUTLINE_WARN_TEXT,
+                hover_color=BTN_OUTLINE_WARN_HOVER, font=small_font(),
+                command=self._toggle_notes)
+            self.notes_toggle.pack(side="right", padx=2)
 
-            # 恢复上次拖拽的 sash 位置（必须等窗口实际渲染后才能设置）
-            self._restore_sash_position()
+            # 笔记文本框（展开时显示，fill both+expand 填满笔记区，可滚动）
+            self.notes_box = NotesBox(self.notes_section, self.db, item["id"],
+                                      current_notes=item.get("notes", ""), height=70,
+                                      show_label=False)
+
+            # 分隔条（row2：可拖拽调节背诵区与笔记区高度）
+            self.sash = tk.Frame(card, height=8, bg="gray60", cursor="sb_v_double_arrow")
+            self.sash.grid(row=2, column=0, sticky="ew", padx=20, pady=(2, 0))
+            self.sash.bind("<ButtonPress-1>", self._on_sash_press)
+            self.sash.bind("<B1-Motion>", self._on_sash_drag)
+            self.sash.bind("<ButtonRelease-1>", self._on_sash_release)
+
+            # 背诵区（row1：占剩余全部高度，grid minsize 保证最小高度可显示两行正文）
+            self.markable_box = MarkableTextbox(card, self.db, item, read_only_marks=False)
+            self.markable_box.grid(row=1, column=0, sticky="nsew", padx=20, pady=(5, 0))
+
+            # 初始高度：收起态 24px；展开态按保存比例（默认 25%，背诵:笔记=3:1）
+            self._apply_notes_height()
+            # 窗口尺寸变化（拉大/全屏）时按比例重算笔记高度，避免下方留白
+            card.bind("<Configure>", self._on_card_resize, add="+")
         else:
+            header.pack(fill="x", padx=20, pady=(15, 5))
             ctk.CTkLabel(card, text="先回忆内容，再点下方按钮查看正文",
                          text_color=COLOR_TEXT_SECONDARY, font=body_font()).pack(pady=40)
             ctk.CTkButton(card, text="📖 展示内容", width=160, height=38,
@@ -230,66 +274,109 @@ class ReviewPanel(ctk.CTkFrame):
                           font=heading_font(),
                           command=self._show_content).pack(pady=10)
 
-    def _restore_sash_position(self):
-        """展开内容后恢复上次拖拽的 sash 位置。
+    def _apply_notes_height(self):
+        """按当前状态设置笔记区高度（pack 布局 + pack_propagate(False) 精确控制）。
 
-        存的是内容框占 paned 总高度的比例（0-1），而非绝对像素。
-        这样无论窗口当前多大，都能按比例正确恢复，避免小窗口时被截断。
-        用多次重试确保窗口已渲染完成（winfo_height>1）。
+        - 笔记收起：24px（仅标题行：笔记文字 + 箭头）；
+        - 笔记展开：可用高度 × 保存比例（默认 25%，即背诵:笔记 = 3:1）。
+        全屏/拉大窗口时 card <Configure> 触发 _on_card_resize → 本方法按比例重算，
+        背诵区（markable_box, fill both+expand）自动占满剩余高度，底部无留白。
+        拖拽分隔条期间（_dragging=True）不执行，避免覆盖用户拖到的位置。
         """
-        attempts = [50, 100, 200, 400]  # 多次重试，等窗口真正渲染完成
-        def _apply(attempt_idx=0):
-            try:
-                paned_h = self.paned.winfo_height()
-                if paned_h <= 1 and attempt_idx < len(attempts) - 1:
-                    # 窗口未就绪，稍后重试
-                    self.after(attempts[attempt_idx + 1], lambda: _apply(attempt_idx + 1))
-                    return
-                self._apply_sash_ratio()
-            except Exception:
-                if attempt_idx < len(attempts) - 1:
-                    self.after(attempts[attempt_idx + 1], lambda: _apply(attempt_idx + 1))
-        self.after(attempts[0], _apply)
-        # 拖拽 sash 释放后自动保存新比例
-        self.paned.bind("<ButtonRelease-1>", lambda _e: self._save_sash_position(), add="+")
-        # 窗口尺寸变化（放大/全屏）时按比例跟随：
-        # 否则内容框高度固定为展开瞬间的值，全屏后正文栏会显得很窄
-        self.paned.bind("<Configure>", self._on_paned_resize, add="+")
-
-    def _apply_sash_ratio(self):
-        """按保存的比例设置内容框高度（内容框占 paned 总高度的比例）。"""
         try:
-            paned_h = self.paned.winfo_height()
-            if paned_h <= 1:
+            if getattr(self, "_dragging", False):
                 return
-            ratio = float(self.db.get_setting("content_paned_ratio", "0.75"))
-            h = int(paned_h * ratio)
-            # 限制范围：至少120，最多留100给笔记
-            h = max(120, min(h, paned_h - 100)) if paned_h > 220 else 120
-            self.paned.sash_place(0, 0, h)
+            card = self.notes_section.master
+            card_h = card.winfo_height()
+            if card_h <= 1:
+                # 窗口未渲染完成，稍后重试
+                self.after(60, self._apply_notes_height)
+                return
+            if not getattr(self, "_notes_expanded", False):
+                self.notes_section.configure(height=24)
+                return
+            ratio = float(self.db.get_setting("notes_section_ratio", "0.25"))
+            # 可用高度 = 卡片高度 - 固定开销（标题/评分按钮/分隔条，约 160px）
+            avail = max(200, card_h - 160)
+            h = int(avail * ratio)
+            h = max(30, min(h, avail - self.MIN_CONTENT_H))  # 背诵区至少 MIN_CONTENT_H
+            self.notes_section.configure(height=h)
         except Exception:
             pass
 
-    def _on_paned_resize(self, event=None):
-        """paned 总高度变化（窗口缩放/全屏）时按比例调整内容框高度。
-        防抖避免连续 Configure 事件反复设置 sash；拖拽 sash 不改变 paned 总高，不会触发此回调。"""
+    def _on_card_resize(self, event=None):
+        """卡片（背诵+笔记容器）尺寸变化（窗口拉大/全屏）时按比例重算笔记高度。
+        防抖避免连续 Configure 反复设置；拖拽分隔条不改变卡片总高，不触发此回调。"""
         if event is None:
             return
         try:
-            if hasattr(self, "_sash_resize_id") and self._sash_resize_id is not None:
-                self.after_cancel(self._sash_resize_id)
-            self._sash_resize_id = self.after(120, self._apply_sash_ratio)
+            if hasattr(self, "_resize_id") and self._resize_id is not None:
+                self.after_cancel(self._resize_id)
+            self._resize_id = self.after(120, self._apply_notes_height)
         except Exception:
             pass
 
-    def _save_sash_position(self):
-        """保存当前 sash 位置（比例）到 settings"""
+    def _on_sash_press(self, event=None):
+        """分隔条按下：标记拖拽开始，记录起点。"""
         try:
-            paned_h = self.paned.winfo_height()
-            if paned_h > 1:
-                sash_y = self.paned.sash_coord(0)[1]
-                ratio = max(0.3, min(0.9, sash_y / paned_h))
-                self.db.set_setting("content_paned_ratio", str(round(ratio, 3)))
+            if event is None:
+                return
+            self._dragging = True
+            self._drag_y0 = event.y_root
+            self._notes_h0 = self.notes_section.winfo_height()
+        except Exception:
+            pass
+
+    def _on_sash_drag(self, event=None):
+        """分隔条拖拽：实时调整笔记区高度（向上拖增大笔记，向下拖减小）。"""
+        try:
+            if not getattr(self, "_dragging", False) or event is None:
+                return
+            delta = self._drag_y0 - event.y_root  # 向上拖为正
+            new_h = self._notes_h0 + delta
+            card = self.notes_section.master
+            max_h = max(30, card.winfo_height() - 160 - self.MIN_CONTENT_H)  # 背诵区至少两行
+            new_h = max(24, min(new_h, max_h))
+            self.notes_section.configure(height=new_h)
+        except Exception:
+            pass
+
+    def _on_sash_release(self, event=None):
+        """分隔条释放：结束拖拽；展开态保存新比例，收起态复位。"""
+        try:
+            if not getattr(self, "_dragging", False):
+                return
+            self._dragging = False
+            if getattr(self, "_notes_expanded", False):
+                self._save_notes_ratio()
+            else:
+                self._apply_notes_height()  # 收起态拖拽无意义，复位
+        except Exception:
+            pass
+
+    def _save_notes_ratio(self):
+        """保存当前笔记区高度比例（笔记占可用高度的比例）到 settings。"""
+        try:
+            card = self.notes_section.master
+            card_h = card.winfo_height()
+            avail = max(200, card_h - 160)
+            h = self.notes_section.winfo_height()
+            ratio = max(0.1, min(0.6, h / avail))
+            self.db.set_setting("notes_section_ratio", str(round(ratio, 3)))
+        except Exception:
+            pass
+
+    def _toggle_notes(self):
+        """展开/收起笔记区。收起时只显示标题行（笔记 + ▲），展开时显示文本框（▼）。"""
+        try:
+            self._notes_expanded = not self._notes_expanded
+            if self._notes_expanded:
+                self.notes_box.pack(fill="both", expand=True, pady=(2, 0))
+                self.notes_toggle.configure(text="▼")  # 展开状态：点击收起
+            else:
+                self.notes_box.pack_forget()
+                self.notes_toggle.configure(text="▲")  # 收起状态：点击展开
+            self._apply_notes_height()
         except Exception:
             pass
 
@@ -326,7 +413,7 @@ class ReviewPanel(ctk.CTkFrame):
                 show_write_error(self, e, "加入重点")
                 return
             messagebox.showinfo("提示", "已加入重点条目", parent=self)
-            # 与列表面板入口保持一致：触发刷新与云端防抖同步
+            # 与列表面板入口保持一致：触发全局刷新
             if self.on_data_changed:
                 self.on_data_changed()
 

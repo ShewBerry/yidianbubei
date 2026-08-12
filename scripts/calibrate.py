@@ -1,8 +1,7 @@
-"""一次性校准脚本（电脑端数据为唯一权威）。
+"""一次性校准脚本（本地单端应用，无云端）。
 
 用法：
     python scripts/calibrate.py local   # 校准本地 items 状态与应背日（先备份）
-    python scripts/calibrate.py cloud   # 校准云端为本地镜像（全量上传 + 删除多余）
 """
 import shutil
 import sqlite3
@@ -101,65 +100,6 @@ def calibrate_local():
     return 0
 
 
-def calibrate_cloud():
-    if not DB_PATH.exists():
-        print(f"未找到数据库: {DB_PATH}")
-        return 1
-    from database import Database
-    from sync.client import _do_request, delete_by_local_ids, fetch_all
-    from sync.synchronizer import Synchronizer
-
-    db = Database(str(DB_PATH))
-    db.init()  # 确保本地已建 key_folders / key_items 等新表
-    sync = Synchronizer(db)
-    print("步骤1: 全量上传本地数据到云端 ...")
-    stats = sync.full_upload()
-    for table, count in stats.items():
-        print(f"  {table}: 上传 {count} 条")
-
-    conn = sqlite3.connect(str(DB_PATH))
-    for table in ("categories", "items", "review_logs", "item_marks",
-                  "key_folders", "key_items"):
-        try:
-            cloud_rows = fetch_all(
-                table, order="folder_local_id.asc" if table == "key_items" else "local_id.asc")
-        except Exception as e:
-            print(f"  {table}: 云端读取失败（请先执行 sync/schema.sql 建表）: {e}")
-            continue
-        if table == "key_items":
-            local_pairs = {(r[0], r[1]) for r in conn.execute(
-                "SELECT folder_id, item_id FROM key_items")}
-            cloud_pairs = {(r["folder_local_id"], r["item_local_id"]) for r in cloud_rows}
-            extra = sorted(cloud_pairs - local_pairs)
-            for fid, iid in extra:
-                _do_request("DELETE", "key_items", query={
-                    "folder_local_id": f"eq.{fid}",
-                    "item_local_id": f"eq.{iid}"})
-            print(f"  key_items: 云端 {len(cloud_pairs)} 条，删除多余 {len(extra)} 条")
-            continue
-        local_ids = {r[0] for r in conn.execute(f"SELECT id FROM {table}")}
-        cloud_ids = {r["local_id"] for r in cloud_rows}
-        extra = sorted(cloud_ids - local_ids)
-        if extra:
-            print(f"  删除云端 {table} 多余 {len(extra)} 条: {extra[:20]}")
-            delete_by_local_ids(table, extra)
-        else:
-            print(f"  {table}: 云端与本地一致（{len(cloud_ids)} 条）")
-    try:
-        cloud_settings = fetch_all("settings", order="key.asc")
-        keys = [r["key"] for r in cloud_settings]
-        if keys:
-            _do_request("DELETE", "settings",
-                        query={"key": f"in.({','.join(keys)})"})
-            print(f"  已清理云端 settings {len(keys)} 条（不再参与同步）")
-    except Exception as e:
-        print(f"  settings 清理跳过: {e}")
-    conn.close()
-    db.close()
-    print("云端校准完成。")
-    return 0
-
-
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -167,9 +107,7 @@ def main():
     cmd = sys.argv[1]
     if cmd == "local":
         return calibrate_local()
-    if cmd == "cloud":
-        return calibrate_cloud()
-    print(f"未知子命令: {cmd}")
+    print(f"未知子命令: {cmd}（仅支持 local）")
     return 1
 
 

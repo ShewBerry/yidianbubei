@@ -30,6 +30,9 @@ reasonix.toml
 # 打包产物
 *.exe
 
+# GitHub 开源版副本（独立仓库用，不随主仓库提交）
+github_version/
+
 # 归档/备份目录（保留在磁盘，不入库）
 _archive_*/
 mobile_backup_*/

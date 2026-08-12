@@ -43,7 +43,7 @@ COLOR_ROUND2_HOVER = "#7d3c98"
 # === 描边按钮（outline 风格）===
 # 值均为 [浅色模式, 深色模式]，customtkinter 会按当前外观模式自动选择，
 # 保证两种模式下文字与背景均保持高对比度。
-# 云端同步（顶栏次要操作）：墨绿描边 + 同色系文字，与 PRIMARY 主按钮呼应
+# 描边次要按钮（如顶栏辅助操作）：墨绿描边 + 同色系文字，与 PRIMARY 主按钮呼应
 BTN_OUTLINE_BORDER = ["#2d6a4f", "#74c69d"]
 BTN_OUTLINE_TEXT = ["#1b4332", "#d8f3dc"]
 BTN_OUTLINE_HOVER = ["#d8f3dc", "#1b4332"]

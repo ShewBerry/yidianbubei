@@ -7,19 +7,23 @@ from ui.errors import show_write_error
 class NotesBox(ctk.CTkFrame):
     """条目级笔记框：失焦时自动保存到数据库。
     在今日背诵展开内容和全部条目展开时复用。
+    show_label=False 时隐藏顶部「笔记」标题栏（用于今日背诵页的紧凑布局）。
     """
     def __init__(self, parent, db, item_id: int, current_notes: str = "",
-                 height: int = 80):
+                 height: int = 80, show_label: bool = True):
         super().__init__(parent, fg_color="transparent")
         self.db = db
         self.item_id = item_id
         self._initial_notes = current_notes or ""
 
-        ctk.CTkLabel(self, text="📝 笔记", font=small_font(),
-                     text_color=COLOR_TEXT_SECONDARY).pack(anchor="w", padx=2, pady=(0, 2))
+        if show_label:
+            ctk.CTkLabel(self, text="📝 笔记", font=small_font(),
+                         text_color=COLOR_TEXT_SECONDARY).pack(anchor="w", padx=2, pady=(0, 2))
 
         self.textbox = ctk.CTkTextbox(self, height=height, font=body_font())
-        self.textbox.pack(fill="x")
+        # fill="both"+expand：放入可伸缩容器（如笔记折叠区）时能随容器高度扩展；
+        # 在固定高度场景（列表卡片）下高度仍由 height 参数决定，行为不变
+        self.textbox.pack(fill="both", expand=True)
         if current_notes:
             self.textbox.insert("1.0", current_notes)
         # 失焦时自动保存
