@@ -8,7 +8,7 @@
 
 👉 [**点此下载 一点不背 v1.0.0**](https://github.com/ShewBerry/yidianbubei/releases/latest) （约 30MB，Windows 10/11）
 
-- 下载 `一点不背.exe` 后双击运行
+- 下载 `yidianbubei.exe` 后双击运行
 - 首次运行会在 exe 同级自动创建 `data/` 文件夹存放背诵数据
 - 如需源码运行、二次开发或查看详细功能，继续阅读下文
 
